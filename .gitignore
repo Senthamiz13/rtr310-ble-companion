@@ -11,6 +11,9 @@ __pycache__/
 *.xcuserstate
 /DerivedData/
 
+# Independently versioned GitHub Pages site
+/website/
+
 # Credentials and machine-local configuration
 .env
 .env.*
