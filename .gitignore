@@ -1,0 +1,39 @@
+# Python environment and generated files
+/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# macOS and Xcode per-user files
+.DS_Store
+**/.DS_Store
+**/xcuserdata/
+*.xcuserstate
+/DerivedData/
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.provisionprofile
+
+# Local captures, app packages, and exports
+*.apk
+*.ipa
+*.btsnoop
+*.btsnoop_hci.log
+*.btsnooz_hci.log
+*.log
+/ble_capture.txt
+/btsnoop_hci.log*
+/btsnooz_hci.log*
+/session_logs/
+/captures/
+
+# Private, large, or device-specific artifacts (kept locally)
+/local_data/*
+!/local_data/README.md
