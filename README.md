@@ -1,4 +1,4 @@
-# RTR 310 BLE Companion
+# RTR Link
 
 An independent project exploring Bluetooth Low Energy communication with a TVS Apache RTR 310. The repository contains a native iOS client, Python utilities for macOS, and protocol notes based on the bike owner's own observations and captures.
 

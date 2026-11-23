@@ -537,8 +537,10 @@ final class BikeBLEManager: NSObject, ObservableObject {
             telemetry.rideModeCode = Int(frame[17] & 0x0F)
             telemetry.vehicleDirectionRaw = Int(frame[2])
             telemetry.vehicleState1Raw = Int(frame[3])
-            telemetry.sideStandStatus = (frame[3] & 0x04) != 0
-            telemetry.sideStandSensorStatus = (frame[2] & 0x20) != 0
+            // APK ApacheClusterDataReceiver extracts State1 bit 7 (mask 0x40)
+            // and VehicleDirection2 bit 5 (mask 0x10); positions are 1-based.
+            telemetry.sideStandStatus = (frame[3] & 0x40) != 0
+            telemetry.sideStandSensorStatus = (frame[2] & 0x10) != 0
             telemetry.serviceReminderRaw = Int(frame[4])
             telemetry.vehicleState2Raw = Int(frame[6])
             telemetry.batteryVoltageRaw = Int(frame[6])

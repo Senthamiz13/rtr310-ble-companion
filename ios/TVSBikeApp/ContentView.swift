@@ -217,19 +217,26 @@ struct ContentView: View {
                 ("Reserved bytes", [bike.telemetry.reserve3Raw, bike.telemetry.reserve14Raw].compactMap { $0 }.map { String(format: "%02X", $0) }.joined(separator: " ").nilIfEmpty)
             ], footnote: "Raw values are shown where byte format, units, or bit meaning still needs confirmation. Side-stand bit polarity is not verified; switch states are retained in the state bytes.")
 
-            detailCard("Ride dynamics · 0x12", items: [
+            detailCard("Current ride statistics · 0x12", items: [
                 ("Lean angle (raw)", raw(bike.telemetry.leanAngleRaw)),
                 ("Cruising range (raw)", raw(bike.telemetry.cruisingRangeRaw)),
                 ("Wheel-angle offset (raw)", raw(bike.telemetry.wheelAngleOffsetRaw)),
                 ("Acceleration (raw)", raw(bike.telemetry.accelerationRaw)),
                 ("Torque (raw)", raw(bike.telemetry.torqueRaw)),
-                ("Trip distance (raw)", raw(bike.telemetry.tripDistanceRaw)),
-                ("Trip time (raw)", tripTime),
-                ("Trip mileage (raw)", raw(bike.telemetry.tripMileageRaw)),
-                ("Trip fuel (raw)", raw(bike.telemetry.tripFuelRaw)),
+                ("Ride distance (raw)", raw(bike.telemetry.tripDistanceRaw)),
+                ("Ride time (raw)", tripTime),
+                ("Ride mileage (raw)", raw(bike.telemetry.tripMileageRaw)),
+                ("Ride fuel (raw)", raw(bike.telemetry.tripFuelRaw)),
                 ("Overspeed threshold (raw)", raw(bike.telemetry.overspeedThresholdRaw)),
                 ("Overspeed setting (raw)", raw(bike.telemetry.overspeedSettingRaw))
-            ], footnote: "Values are from the APK's field map; units/scaling are not yet verified.")
+            ], footnote: "This frame provides one current-ride statistics set. It does not identify Trip A, B, C, or Day Trip. Units/scaling are not yet verified.")
+
+            detailCard("Cluster trip meters", items: [
+                ("Trip A", "Not present in the decoded BLE feed"),
+                ("Trip B", "Not present in the decoded BLE feed"),
+                ("Trip C", "Not present in the decoded BLE feed"),
+                ("Day Trip", "Not present in the decoded BLE feed")
+            ], footnote: "The current APK parser exposes one ride-stat set from frame 0x12, not four separate cluster trip-meter values.")
 
             detailCard("Unmapped frame · 0x5F", items: [
                 ("Decoded payload", bike.telemetry.unknown5FPayloadHex)

@@ -1,4 +1,4 @@
-# TVS Bike iOS app
+# RTR Link iOS app
 
 Native SwiftUI/Core Bluetooth starter app for the Apache RTR 310 BLE protocol.
 
@@ -29,7 +29,7 @@ Launch the app once and allow Bluetooth access. After that, the app can reconnec
 
 BLE hardware behavior cannot be tested in the iOS simulator; use a physical iPhone to verify pairing, background reconnection, and telemetry.
 
-RTR Companion is a fan-made, open-source project for Apache RTR owners. It is an independent companion and does not replace the official TVS app. It is not affiliated with, endorsed by, or supported by TVS Motor Company. The software is experimental, provided as-is, and used at the rider's own risk. Compatibility and behavior may vary by bike and firmware. Follow the official owner's manual and do not interact with the app while riding. Product names and trademarks belong to their respective owners.
+RTR Link is a fan-made, open-source project for Apache RTR owners. It is an independent companion and does not replace the official TVS app. It is not affiliated with, endorsed by, or supported by TVS Motor Company. The software is experimental, provided as-is, and used at the rider's own risk. Compatibility and behavior may vary by bike and firmware. Follow the official owner's manual and do not interact with the app while riding. Product names and trademarks belong to their respective owners.
 
 The dashboard header uses a TVS Apache RTR 310 product image sourced from the [official product page](https://www.tvsmotor.com/tvs-apache/apache-rtr-310). TVS Motor Company retains all rights; this project does not have an image reuse license or endorsement from TVS.
 

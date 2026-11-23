@@ -1,29 +1,12 @@
 # TVS Bike BLE Protocol and Communication
 
-How the phone app and the bike talk to each other over Bluetooth Low Energy (BLE). This is reverse engineered from official app HCI snoop captures (kept locally under `local_data/captures/`) and captured packet comparisons from the Python client. Runtime behavior may still differ from the Android app.
+How the phone app and the bike talk to each other over Bluetooth Low Energy (BLE). Everything here was reverse engineered from an HCI snoop capture of the official phone app (`btsnoop_hci.log`, 148 s, one connection) and confirmed by a Python client (`bike_web.py` + `bike_protocol.py`) that now works against the real bike.
 
 **Confidence levels used below**
 
-- **Confirmed**: directly visible in the capture or established by the APK packet builder. Matching a byte does not, by itself, confirm that byte's meaning.
+- **Confirmed**: seen directly in the capture, or reproduced byte for byte by `test_bike_protocol.py`.
 - **Inferred**: a reasonable reading of the data, not proven.
 - **Unknown**: present in the data, meaning not determined.
-
-## 1A. Confirmed indicator and call behavior
-
-The following signal-status values have now been correlated with the rider's indicator actions:
-
-| Decoded `0x11` byte 12 | Meaning | Evidence |
-|---:|---|---|
-| `0` | No indicator active | Seen between active indicator values in the earlier full capture; interpreted as off. |
-| `1` | Right indicator | Rider-confirmed action/status correlation. |
-| `2` | Left indicator | Rider-confirmed action/status correlation. |
-| `3` | Hazard lights | Rider-confirmed action/status correlation. |
-
-This is **bike-to-phone telemetry**: the APK's Apache parser calls this field `turnSignalLampStatus` at offset 12, and the phone reports it. It is not a D-pad command and it is not the phone's hazard-on command.
-
-The APK also handles a bike-originated call-control action in Apache frame `0x11`, decoded byte 11: value `1` invokes Android's `TelecomManager.acceptRingingCall()`, `2` rejects, and `3` invokes the app's alternate reject path. The adjacent byte 12 is independently parsed as turn-signal status. The decompiled APK's accept-call path does **not** send an indicator/hazard BLE write. Therefore, if hazards come on when you answer from the bike, the evidence points to the bike/cluster firmware activating them as a local behavior associated with call acceptance (or another bike-side rule); the APK alone does not establish the exact firmware trigger. The current truncated HCI capture cannot verify the byte-11/byte-12 transition during that call.
-
-To prove the trigger, make one controlled capture with full 20-byte packets from before the phone rings until after answering on the bike. Record the instant of the button press. Check whether the bike sends frame `0x11` byte 11 = `1`, whether byte 12 changes to `3`, and whether the phone sends any write at that instant. If byte 12 changes to `3` without an app-to-bike command, it confirms the bike reports/activates hazard locally; if an app write precedes it, decode that write before concluding.
 
 ---
 
@@ -32,19 +15,19 @@ To prove the trigger, make one controlled capture with full 20-byte packets from
 ```
   Phone / Mac (central, GATT client)                    Bike (peripheral, GATT server)
   ----------------------------------                    ------------------------------
-  scans, connects  ------------------------------------>  advertises as "<bike BLE name>"
+  scans, connects  ------------------------------------>  advertises as "TVSRTR310DLA3140"
                    <------------------------------------   Security Request ("please pair")
   passkey pairing  <------------------------------------>  bike shows passkey, phone types it
   enable notifications (CCCD = 0x0001)  --------------->
   write rider-name frame (0x52)  ---------------------->
-                   <-----------------------------------    main telemetry frame ~3 per second
+                   <-----------------------------------    telemetry notifications, ~3 per second
   write clock/status frame (0x4A) every 2 s  ---------->
                    <-----------------------------------    more telemetry notifications
   disconnect  ---------------------------------------->
 ```
 
-- The **bike is the data source**. It streams telemetry (speed, RPM, fuel, gear, and so on) as notifications after the app subscribes. Main frames `0x10` and `0x12` each arrive about 3 times per second in this capture; total notifications average about 7.5 per second.
-- The **app** sends a rider-name frame once, then a periodic frame carrying the phone's clock/date, signal level, battery bucket, and Android network-type value.
+- The **bike is the data source**. It streams telemetry (speed, RPM, fuel, gear, and so on) as notifications as soon as the app subscribes.
+- The **app** sends only a few small frames: the rider name once, then a periodic frame carrying the phone's clock, date and a signal level.
 - One service, two characteristics. All traffic is 20-byte frames.
 
 ---
@@ -53,7 +36,7 @@ To prove the trigger, make one controlled capture with full 20-byte packets from
 
 | Item | Value |
 |---|---|
-| Device name (GATT `0x2A00`) | `<bike BLE name>` |
+| Device name (GATT `0x2A00`) | `TVSRTR310DLA3140` |
 | Custom service UUID | `5456534d-5647-5341-5342-454e544f5251` (the bytes spell ASCII `TVSMVGSASBENTORQ`) |
 | Notify characteristic (bike to app) | `00005354-0000-1000-8000-00805f9b34fb` (16-bit `0x5354`), value handle `0x22` |
 | CCCD for the notify characteristic | handle `0x23` (app writes `0x0001` to subscribe) |
@@ -88,12 +71,12 @@ Times are seconds from the first packet in the capture.
 | 77.2 onward | Bike | **Starts streaming** notifications. It does not wait for the clock frame. |
 | 79.1 | Phone | First **clock/status frame** (`0x4A`), then one every 2 s. |
 | ~89 | Phone | Clock/status frame rate rises to about 5 per second (reason unknown). |
-| 126.7 to 130.2 | Phone | Eight writes of a second text frame (`0x43`) every ~0.5 s (caller text redacted). |
+| 126.7 to 130.2 | Phone | Eight writes of a second text frame (`0x43`) every ~0.5 s (the capture shows `Thiravi`). |
 | 144.4 | Phone | Disconnects. The bike does not drop the link. |
 
 **What this means for a client**
 
-1. Pairing must finish before notifications can be enabled. In this capture encryption began about 15 s after connecting, and the phone subscribed around 18 s after connecting; allow time for passkey entry and service setup.
+1. Pairing must finish before notifications can be enabled. Allow time for the passkey entry; the phone needed ~15 s from connecting.
 2. After subscribing, the bike streams on its own.
 3. Do the first write right after subscribing, then send the clock frame about every 2 s.
 
@@ -144,12 +127,12 @@ In the sections below, **"frame byte N"** means index N of the *decoded* frame (
 Wire bytes written by the phone:
 
 ```
-5b 52 b8 83 8e 8f 98 ea ea ea ea ea ea ea ea ea ea ea ea ff
+5b 52 99 8f 84 ea ea ea ea ea ea ea ea ea ea ea ea ea ea ff
 ```
 
 - `5b`: app header
 - `52`: frame ID, rider name
-- `b8 83 8e 8f 98` XOR `ea` gives `52 69 64 65 72`, which is ASCII `Rider`
+- `99 8f 84` XOR `ea` gives `73 65 6e`, which is ASCII `sen`
 - `ea ...` XOR `ea` gives `00` padding
 - `ff`: trailer
 
@@ -167,33 +150,35 @@ Sent **once**, 0.1 s after notifications are enabled.
 |---|---|
 | 2 to 18 | Name in ASCII, zero padded, maximum 17 characters |
 
-### 5.2 Contact-info text, ID `0x43` (Frame confirmed; captured use likely caller name)
+### 5.2 Second name field, ID `0x43` (Confirmed frame, purpose Unknown)
 
-Seen 8 times at about 0.5 s intervals (126.7 to 130.2 s). The captured caller text is redacted. The APK routes `0x43` through `returnContactInfoPacket()` / caller-information code, so this is contact/caller information; the capture associates the text burst with a call. The exact behavior triggered on the bike is not established. The Python dashboard has a caller-name test that exercises the captured text-frame form without embedding personal call content.
+Seen 8 times at about 0.5 s intervals (126.7 to 130.2 s). Same layout as `0x52`: ASCII text, zero padded. The capture shows `Thiravi`. Best reading: the **caller name shown on the cluster during the call alert** (see section 10.3). The Python app does not send it yet.
 
-### 5.3 Clock and status, ID `0x4A` (Confirmed layout, some fields Inferred)
+### 5.3 Phone status, ID `0x4A` (Confirmed: layout read from the APK and matched to the capture)
 
-The periodic frame. 294 of the 303 writes are this one. It carries the phone's clock and date.
+The periodic frame, built by `BlePacketsProvider.sendApacheMobileData` in the APK and sent by `ApacheMobileToCluster.sendMobileData`. 294 of the 303 writes are this one.
 
-| Frame byte | Meaning | Status | Example (17:58:58 on 14 Nov 2026) |
+| Frame byte | Field | APK source | Example |
 |---|---|---|---|
-| 2 | `(signal_strength << 4) \| battery_bucket` | APK reads signal strength and maps phone battery percentage to a 0–5 bucket; capture shows `0x13`, `0x23`, `0x33` | `0x33` |
-| 3 | Over-speed limit | APK default is 120; capture confirms `0x78` | `0x78` |
-| 4, 5 | Unknown fields | Zero in this capture; APK may fill them for call/SMS data | `0x00` |
-| 6 | Hour, 12-hour clock | Confirmed | `0x05` |
-| 7 | Minute | Confirmed | `0x3A` |
-| 8 | Second | Confirmed | `0x3A` |
-| 9 | 1 if PM, else 0 | Inferred (always PM in the capture) | `0x01` |
-| 10 | Missed-call related field | Zero in this capture; nonzero behavior was not observed | `0x00` |
-| 11 | Android network-type code | APK reads its `NETWORK_TYPE` preference here; observed 0 for most of the session, then 3 and 4 | `0x00` |
-| 12 | Day of month | Confirmed | `0x0E` (14) |
-| 13 | Month | Confirmed | `0x0B` (11) |
-| 14 | Year mod 100 | Confirmed | `0x1A` (26) |
-| 15 to 18 | Other call/voice-assist fields | Zero in this capture; semantic mapping is incomplete | `0x00` |
+| 2 | High nibble: **cellular signal strength**. Low nibble: **phone battery level 0 to 5** (see section 11.2) | `NETWORK_STRENGTH` pref and `getIceBatteryLevel()`, decimal digits joined and parsed as hex | `0x33` = signal 3, battery 40 to 59 % |
+| 3 | **Overspeed limit** in km/h, `120` (`0x78`) when the overspeed alert is off | `IceSettingsModel.getOverSpeedAlert()/getOverSpeedLimit()` | `0x78` |
+| 4, 5 | Always 0 | constants | `0x00` |
+| 6 | Hour, 12-hour clock | `getCurrentHour(Calendar)` | `0x05` |
+| 7 | Minute | `Calendar.MINUTE` | `0x3A` |
+| 8 | Second | `Calendar.SECOND` | `0x3A` |
+| 9 | 1 = PM, 0 = AM | `Calendar.AM_PM` | `0x01` |
+| 10 | **Missed-call count** | `MISSED_CALL` pref | `0x00` |
+| 11 | **Network type** code | `NETWORK_TYPE` pref | `0x00`, later `0x03`, `0x04` |
+| 12 | Day of month | `Calendar.DAY_OF_MONTH` | `0x0E` |
+| 13 | Month (1 to 12) | `Calendar.MONTH + 1` | `0x0B` |
+| 14 | Year mod 100 | `Calendar.YEAR % 100` | `0x1A` |
+| 15 | **Current call state** | `bleEngine.getCurrentCallState()` | `0x00`; `0x02` once, right after the reject |
+| 16 | **Voice-assist status**, high nibble | `VOICE_ASSIST_STATUS` pref, digit + `"0"` parsed as hex | `0x00` |
+| 17, 18 | Always 0 | padding | `0x00` |
 
-Wire bytes for that example: `5b 4a d9 92 ea ea ef d0 d0 eb ea ea e4 e1 f0 ea ea ea ea ff`
+The APK has two other layouts for the bike types `APACHE_U449` and `APACHE_U469` (17-byte body, call state in byte 17) and an 18-byte variant. The capture matches the standard layout above.
 
-The low nibble of byte 2 is the phone battery bucket, not a fixed `0x03`. The APK's `getIceBatteryLevel()` maps 0–9% to 0, 10–19% to 1, 20–39% to 2, 40–59% to 3, 60–79% to 4, and 80–100% to 5. This capture's low nibble is 3, which narrows battery to 40–59%; the exact phone percentage is not recoverable.
+Wire bytes for the first capture example (17:58:58, 14 Nov 2026): `5b 4a d9 92 ea ea ef d0 d0 eb ea ea e4 e1 f0 ea ea ea ea ff`
 
 **Timing**
 
@@ -215,11 +200,11 @@ The bike keeps streaming while this frame is sent. Whether it would stop streami
 |---|---|---|---|---|
 | `0x10` | `5A` | 224 | ~every 0.3 s | **Main telemetry**: speed, odometer, fuel, RPM and more |
 | `0x12` | `5A` | 223 | ~every 0.3 s | Second periodic frame, mostly zeros. Meaning Unknown |
-| `0x11` | `5A` | 29 | occasional | Gear and bike state; APK parser names byte 12 as turn-signal-lamp status |
+| `0x11` | `5A` | 29 | occasional | **Gear** (and other fields, Unknown) |
 | `0x5F` | `5A` | 12 | occasional | Almost all zeros. Unknown |
-| `0x7D` | `5A` | 5 | at connect (77.6 to 78.9 s) | Vehicle identifier frame; payload redacted |
-| `0x42` | `5B` | 5 | at connect | Bluetooth identity frame; payload redacted |
-| `0x6B` | `5A` | 2 | rare | Bike-to-phone **music control** command; command value is byte 2 |
+| `0x7D` | `5A` | 5 | at connect (77.6 to 78.9 s) | ASCII identifier of 17 characters. It looks like a VIN or vehicle ID |
+| `0x42` | `5B` | 5 | at connect | Contains the bike's own Bluetooth address (value redacted) |
+| `0x6B` | `5A` | 2 | rare | Short, mostly zeros. Unknown |
 
 The identity frames (`0x7D`, `0x42`) are sent a few times right after the subscription. Do not log them if you care about privacy.
 
@@ -280,16 +265,16 @@ Decoded body (XOR `ea`), listed by frame byte:
 # 6. decode every notification: decode(frame), then read fields by frame ID
 ```
 
-See [`../scripts/bike_protocol.py`](../scripts/bike_protocol.py) for the frame builders and [`../tests/test_bike_protocol.py`](../tests/test_bike_protocol.py) for the checks against captured bytes.
+See `bike_protocol.py` for the frame builders and `test_bike_protocol.py` for the checks against captured bytes.
 
 ---
 
 ## 9. Open questions
 
-1. What do the remaining unknown clock-frame fields (especially bytes 4, 5, 10 and 15–18) carry during calls or messages?
+1. What do the unknown clock-frame bytes (frame bytes 3 and 11) mean, and does byte 2 really track signal level?
 2. Why does the phone speed the clock frame up to ~5 per second after 89 s?
-3. What is the `0x43` frame for, and what triggered it?
-4. What do the `0x12` and `0x5F` notifications carry?
+3. Which exact bike-side value is the call reject, and which d-pad button is code 1 or 2 (see section 10)?
+4. What do the `0x12`, `0x5F` and `0x6B` notifications carry?
 5. Does the bike stop streaming, or disconnect, if the clock frame stops?
 6. Are the odometer and throttle conversions correct?
 
@@ -297,9 +282,13 @@ Items 1 to 4 can be answered by capturing the phone app again while changing one
 
 ---
 
-## 10. Calls, bike controls, navigation and media
+## 10. Call alert and d-pad: what the capture shows
 
-The earlier full capture (about 98 to 144 s) contains caller-info traffic and state changes. APK analysis and the later `btsnooz_hci.log` now resolve some of those frames; other values remain uncertain.
+> **Second correction (iOS code and APK field names, section 13).** Byte 12 of the `0x11` frame is the **turn indicator** (0 off, 1 right, 2 left, 3 hazard), not a d-pad code, so the 2, 2, 2, 0, 1, 0 pattern at 134 to 140 s was left and right indicators. The bike's `0x10` byte 11 is the handlebar **switch status**. The `0x6B` frame is the bike's **music command** (not obfuscated). Wherever section 10 says "d-pad" for byte 12, read "turn indicator".
+>
+> **Correction after reading the APK (section 11).** Byte 11 of the `0x4A` frame is the **network type**, not a call status word, and byte 15 is the **call state**. The call-state byte went to 2 for one frame at 130.55 s, right after the bike's reject report. The rest of this section is kept as originally written; where it conflicts with section 11, section 11 wins.
+
+The second half of the capture (about 98 to 144 s) contains a call alert and handlebar d-pad presses. These are **not yet decoded with certainty**: the capture has one call and a handful of presses, so there is too little data to separate every meaning. This section lists what was observed and ranks the readings.
 
 ### 10.1 Bike frame checksum (Confirmed)
 
@@ -309,7 +298,7 @@ Bike-to-app frames carry a checksum in the **last body byte (decoded frame byte 
 byte18 = (0xA5 - frame_id - sum(decoded bytes 2..17)) mod 256
 ```
 
-It holds for every `0x10`, `0x11`, `0x12`, `0x5F` and `0x42` frame in the capture (all 493 of them). It does not hold for the identity frame `0x7D` or the special music-control frame `0x6B`. The app's own frames do **not** carry this checksum, and the bike accepts them anyway (your Python client works without it).
+It holds for every `0x10`, `0x11`, `0x12`, `0x5F` and `0x42` frame in the capture (all 493 of them). It does not hold for the identity frames `0x7D` and `0x6B`. The app's own frames do **not** carry this checksum, and the bike accepts them anyway (your Python client works without it).
 
 Use it to validate incoming frames, and to tell real state changes from corrupted frames.
 
@@ -318,69 +307,281 @@ Use it to validate incoming frames, and to tell real state changes from corrupte
 | Time (s) | Direction | Observation |
 |---|---|---|
 | 98 to 125 | Bike to app | Frame `0x11` byte 17 toggles `0x22` / `0x32` (with byte 18 following the checksum) 8 times. Meaning Unknown. |
-| 125.77 | App to bike | Clock frame `0x4A` byte 11 (Android network-type value per APK code) changes **0 to 3**. |
-| 126.67 to 130.16 | App to bike | Eight `0x43` caller/contact frames, 0.5 s apart; personal text redacted. |
+| 125.77 | App to bike | Clock frame `0x4A` byte 11 (the "status word") changes **0 to 3**. |
+| 126.67 to 130.16 | App to bike | Eight `0x43` frames, 0.5 s apart, text `Thiravi`. |
 | 130.27 and 130.55 | Bike to app | Two telemetry frames (`0x10`) with **byte 11 = 2** instead of 0. Seen nowhere else. |
-| 134.24 to 140.25 | Bike to app | Frame `0x11` **byte 12** goes 2, 2, 2, 0, 1, 0. With the later rider-confirmed mapping, this is left, left, left, off, right, off. Byte 13 drops `0x50` to `0x4F` (80 to 79) at 137.47; its meaning is unknown. |
-| 142.54 | App to bike | Network-type byte changes **3 to 4**. |
+| 134.24 to 140.25 | Bike to app | Frame `0x11` **byte 12** goes 2, 2, 2, 0, 1, 0, and byte 13 drops `0x50` to `0x4F` (80 to 79) at 137.47. |
+| 142.54 | App to bike | Status word changes **3 to 4**. |
 | Every 10 s | Bike to app | Frame `0x5F` alternates between all zeros and a variant with byte 12 = `0x20` (a 10 s bike heartbeat). |
 
 ### 10.3 Call alert, best reading
 
 | Piece | Reading | Confidence |
 |---|---|---|
-| `0x43` frame | Caller/contact-name text: the APK routes this frame family through caller-information code. | High for purpose; the frame alone does not create or prove call/ringing state. |
-| Network-type byte going to 3 | APK reads byte 11 from its `NETWORK_TYPE` preference. Its change shortly before the caller-name frame is temporal coincidence in this capture; it is not evidence of a call-state flag. | High for the field's APK source; the trigger for values 3 and 4 in this capture is unknown. |
+| `0x43` frame | **Caller name shown on the cluster during a call**: a text frame, sent in a burst of 8 over 4 s, right after the call was triggered | High |
+| Clock frame byte 11 going to 3 | A call or notification state flag. It rose ~0.9 s before the first name frame. | Medium. It stays at 3 after the call ended and became 4 at 142.5 s, so it may be an event counter rather than a plain "ringing" flag. |
 | Bike `0x10` byte 11 = 2 (130.27 s) | **The rider's cancel / reject**, reported by the bike. It appears 0.1 s after the last name frame and nowhere else. | Medium. The app stopped sending names at 130.16 s, just before it. It could instead be a fixed 4 s ring timeout. |
 
-### 10.4 D-pad music commands (Confirmed by APK and the new capture)
+### 10.4 D-pad, best reading
 
-The RTR 310 reports handlebar music-control input to the phone as frame `5A 6B`; the APK classifies it as `MUSIC_CONTROL_PACKET` and reads byte 2 as the command. `BluetoothUtil.getMusicCommandType()` maps `0` to Play, `1` to Pause, `2` to Toggle, `3` to Next, and `4` to Previous (it also defines `5`/`6` as volume up/down). The handler sends Android media key events to the active audio session; Toggle checks whether music is active and chooses pause or play. In the new capture, the visible bike notifications contain byte-2 values `3`, `4`, and `2`, each repeated twice. They line up with Next, Previous, and Toggle commands. Each pair is followed by the phone writing refreshed media metadata/state (`0x62`, `0x63`, `0x61`, `0x60`). The capture proves these command values, but not the physical direction or exact button press pattern that generated them.
+| Piece | Reading | Confidence |
+|---|---|---|
+| Frame `0x11` byte 12 | **Button code**: 0 = nothing pressed, 1 and 2 = two different presses. Only these two codes appear. | Medium |
+| Frame `0x11` byte 13 (80 to 79) | A value that the d-pad changed (a setting or menu index, for example). Unknown. | Low |
 
-The earlier interpretation that `0x11` byte 12 was a D-pad code was incorrect. The APK's Apache parser names it `turnSignalLampStatus`; it is bike status telemetry, not the music-control command. The rider-confirmed mapping is `1=right`, `2=left`, `3=hazard`; `0` is interpreted as off.
+With about six presses, the capture cannot say which of up, down, left, right or OK gives code 1 or 2. It also cannot say whether the call cancel was a separate code or the `0x10` byte 11 value above.
 
-### 10.5 Indicators and hazard lights
-
-The APK's Apache data parser reads frame `0x11`, byte 12 as turn-signal-lamp status and publishes it in the bike telemetry model. Correlated values: `0=off`, `1=right`, `2=left`, `3=hazard` (rider-confirmed). The separate global `TSL_LEFT`, `TSL_RIGHT`, and `TSL_HAZARD` constants are not the basis for this mapping.
-
-When accepting a call from the bike, Apache `0x11` byte 11 is an action field: APK code maps `1` to answer, `2` to reject, and `3` to a second reject mode. For `1`, the app calls Android `acceptRingingCall()`. The inspected accept path contains no BLE write that sets hazards. The most likely explanation for hazards activating at answer is a bike/cluster firmware behavior linked to the bike's call-accept action; this remains an inference until a full HCI trace captures the byte-11 action, byte-12 status, and any simultaneous phone writes. Do not treat the call action value `1` as the right-indicator status: they are different byte offsets in the same frame.
-
-The **Nov 14 `btsnooz_hci.log`** capture has 17 `0x11` notifications, but its packet truncation removes byte 12. Thus the mapping above is documented from the rider's observed actions, but those particular transitions cannot be validated against that file. A later full-packet capture is summarized in section 10.9; it still does not contain a controlled call-answer or stand-toggle event.
-
-### 10.6 Signal, battery and the rest of the app-to-bike data
+### 10.5 Signal, battery and the rest of the app-to-bike data
 
 | Item | Where it is in the capture | Confidence |
 |---|---|---|
-| Signal strength | Clock frame byte 2, high nibble; APK reads its signal-strength preference | High for source field; exact scale is not independently verified |
-| Phone battery | Clock frame byte 2, low nibble, mapped by APK to a 0–5 battery bucket | High for source field; capture shows bucket 3 (40–59%), not exact percent |
-| Android network type | Clock frame byte 11; APK reads its `NETWORK_TYPE` preference | High for source field; values observed include 0, 3, 4 |
-| Call alert | `0x43` caller name; byte 11 is network type, not a call-state field | Medium |
+| Signal strength | `0x4A` byte 2, high nibble (drifts 1, 2, 3) | Confirmed in the APK |
+| Battery percentage | `0x4A` byte 2, low nibble, as a 0 to 5 bucket (section 11.2). It stayed at 3 (40 to 59 %) during the capture, which is why it never changed. | Confirmed in the APK |
+| Call alert | `0x43` caller name and status word, as above | Medium |
 | SMS, missed call, navigation, and similar | Not exercised in this capture | None |
 
-### 10.7 How to settle it
+### 10.6 How to settle it
 
-1. To independently verify indicator/hazard mapping, capture full 20-byte `0x11` notifications and toggle left, right, and hazard one at a time with timestamps. The current mapping is rider-confirmed.
-2. For D-pad mapping beyond media commands, capture one physical key action at a time and correlate bike `0x6B` command frames with the action. The current capture already maps `3=Next`, `4=Previous`, and `2=Toggle`.
-3. Probe from Python by changing signal level, battery bucket, and network type one at a time. Treat `0x43` as caller/contact information, not proof of ringing state by itself.
+1. **Tell me the order of what you did**: which d-pad buttons, how many times, and roughly when the call started and was cancelled. That alone may map most of the codes above.
+2. **Run controlled captures** with one action each and 10 s of silence between actions: up x3, down x3, left x3, right x3, OK x3, then an incoming call rejected from the d-pad, then answered, then missed.
+3. **Probe from Python**, now that it works: send the clock frame with different byte 11 values and `0x43` names, and watch the cluster. This answers the call question directly, and it can settle battery and signal too.
 
-### 10.8 New HCI capture: `btsnooz_hci.log` (2026-11-14, 19:38–19:41)
+---
 
-This capture begins mid-session; it does not contain the connection, pairing, service discovery, or notification-subscription sequence. TShark reports **15 captured bytes out of 32 on every ATT packet**, leaving only the first three ATT value bytes. That is enough to see the `0x6B` music command byte, but not later fields such as incoming `0x11` byte 12 or most caller-name text. Treat the counts below as evidence of traffic, not complete packet decodes.
+## 11. Definitions read from the TVS Connect APK
 
-- **Telemetry stayed active:** 823 notifications on handle `0x0022`, from frame 2 through frame 1586. The captured prefixes identify 394 each of `5A 10` and `5A 12`, 17 of `5A 11`, 12 of `5A 5F`, and 6 of `5A 6B`. The six `0x6B` notifications contain byte-2 values `3,3,4,4,2,2`: APK maps these to Next, Previous, Toggle. The longest gap between all notifications was about **330 ms**. This capture does not show a telemetry stall before disconnect.
-- **Phone writes:** 140 ATT Write Requests on handle `0x0026`. The visible prefixes classify 91 as `5B 4A` status frames, 10 as `5B 43` contact/caller-text frames, 19 as `5A 4E` navigation frames, and five each as `5B 60`, `5B 61`, `5B 62`, and `5B 63` media frames. All 140 custom-characteristic writes received ATT Write Responses. The 10 `0x43` writes appear in three bursts (4, 4, then 2) about half a second apart, rather than the eight-frame burst in the older capture. The truncated payload prevents recovering the caller name or telling whether each burst corresponds to a separate call event.
-- **Navigation:** `ApacheClusterNavigationData` in the APK defaults to header `5A 4E`. The 19 matching writes appear in several short bursts from about 11.4 to 18.5 seconds into the captured session. That strongly matches your report that you used map navigation. The packet contents are truncated, so turn instructions, distance, and route text cannot be recovered here.
-- **Spotify/media:** the APK's music sender emits song title `0x62`, artist `0x63`, album `0x61`, and Apache play/pause state `0x60`. The bike sent `0x6B` command values `3` (Next), `4` (Previous), and `2` (Toggle), each twice. Those commands line up with your D-pad track and play/pause use. The app then sent five four-frame media metadata/state sequences; three followed the commands, while two likely represent other media-session updates. Payload truncation prevents reading track names or the play/pause state byte.
-- **Indicators / hazard:** the APK's Apache parser identifies `0x11` byte 12 as `turnSignalLampStatus`; rider-confirmed values are `1=right`, `2=left`, `3=hazard` (`0=off`). The new capture contains 17 such frames but is truncated before byte 12, so those logged indicator actions cannot be correlated to this mapping from this file. Similar-looking global TSL constants are unrelated evidence and were not used for the mapping.
+Source: `com.tvsm.connect.apk`, version 8.12.3 (build 326), decompiled statically with JADX (SHA-256 `b16bd054...20832d`). The APK was never run. Class and method names below let you re-check every item.
 
-### 10.9 Full HCI capture: `btsnoop_hci.log` (2026-11-21)
+### 11.1 Where the Apache (RTR) protocol lives
 
-Source: `local_data/captures/btsnoop_hci.log` (SHA-256 `a33dfc299cd678293327b6806db3e5316836f0d918a7700cad11e0ccf0a7d541`). The same file is in the Android bugreport's Bluetooth log folder. Unlike the Nov 14 `btsnooz` capture, this log contains complete 20-byte application frames.
+| Role | Class |
+|---|---|
+| BLE service for the Apache bikes | `com.tvs.ble.feature.bikewiseblehelpers.ApacheBleService` (`sendRiderName`, `sendInitialDataPacket`, `writeCyclicDataPacket`, `sendMusicStatusDataPacket`) |
+| Everything the app writes to the cluster | `com.tvs.ble.feature.datasender.ApacheMobileToCluster` |
+| Frame builders | `com.tvs.bluetooth.core.utils.BlePacketsProvider` and `BluetoothUtil` |
+| Parsed cluster data (bike to app) | `com.tvs.bike.core.protocol.BtData` (not decoded yet) |
+| Connection and call handling | `com.tvs.ble.feature.handler.BleEngine` (`processBikeWiseIncomingCall`, `getCurrentCallState`, `observeDocTransferFromCluster`) |
+| Bluetooth stack | Nordic `no.nordicsemi.android.ble.BleManager` plus a Blessed-style central (`com.tvsm.connect.blemanager`) |
 
-- **Explicit alert text:** the phone writes custom-text frame `0x4C` decoded as **“Alert Enabled”** at 11:41:09.933 and **“Alert Disabled”** at 11:41:15.692; another “Alert Enabled” is sent at 12:06:39.748. Each is followed by a zero-filled `0x4C` clear frame within about half a second. These packets travel **phone → bike**, so they are cluster-display text sent by the app, not a warning received by the phone. The BLE trace alone does not establish what user action or alert condition triggered them.
-- **Stand telemetry:** the APK's `ApacheSpeedOMeter2` / `ApacheClusterDataReceiver` model includes `sideStandStatus` and `sideStandSensorStatus`, derived from bits in frame `0x11`. There are 132 complete `0x11` notifications in this capture. The corresponding stand bits do not change in this session, so this file provides no side-stand transition to correlate with a mobile alert. Their active/inactive polarity still needs a controlled test with the physical stand.
-- **Other warnings:** no bike-to-phone BLE text frame containing a stand warning or other warning message appears in the capture. This does not rule out an iOS/Android notification created locally from telemetry, or delivered through the app's network connection; an HCI BLE snoop only shows Bluetooth traffic. The `0x11` telemetry does carry diagnostic, tell-tale, temperature, and MIL-related fields in the APK model, but the warning thresholds and all codes are not decoded well enough here to label a fault.
-- **Useful next capture:** with the official app connected, toggle the side stand once while stationary, note the exact time, then capture the resulting phone notification. Compare the full `0x11` frames immediately before and after and check whether any `0x4C` write or phone notification occurs. Avoid riding or relying on an experimental app for safety warnings.
-- **Disconnect:** notifications continued through frame 1586. The phone then sent a local HCI Disconnect command (frame 1587); the controller reported `Connection Terminated by Local Host (0x16)` at frame 1589. As in the prior Android trace, this identifies the local host as the disconnect initiator, but cannot distinguish an app-requested disconnect from an Android stack/host close. It does not support the theory that notifications stopping caused this disconnect.
+The same package has helpers for other models (`NtorqBleHelper`, `JupiterBleService`, `U347/U388/U467BleHelper`), so frame layouts differ per bike type.
 
-**APK correlation:** `TelephonyUtils.returnContactInfoPacket()` constructs `5B 43`; `BlePacketsProvider.sendApacheMobileData()` constructs `5B 4A`; `ApacheClusterNavigationData` uses `5A 4E`; and `BleMusicDataSourceImpl`/`BlePacketsProvider` build title, artist, album, and play/pause packets (`5B 62`, `5B 63`, `5B 61`, `5B 60`). The bike's `5A 6B` command byte also maps to Next, Previous, and Toggle in the APK. Together with your description, this capture records navigation and D-pad-driven media actions. It cannot confirm indicator/hazard states or mock battery/signal values because those bytes were truncated. The `0x43` caller-information traffic is also present, although you did not mention placing or receiving a call during this session.
+### 11.2 Phone battery level (byte 2, low nibble)
+
+`BluetoothUtil.getIceBatteryLevel(percent)`:
+
+| Phone battery | Level sent |
+|---|---|
+| 0 to 9 % | 0 |
+| 10 to 19 % | 1 |
+| 20 to 39 % | 2 |
+| 40 to 59 % | 3 |
+| 60 to 79 % | 4 |
+| 80 to 100 % | 5 |
+
+### 11.3 Everything `ApacheMobileToCluster` can send
+
+These are the app-to-bike features visible in the class. Only the first three appear in the capture.
+
+| Method | What it is | In the capture? |
+|---|---|---|
+| `sendRiderName` | Frame `0x52`, rider name | Yes |
+| `sendMobileData` | Frame `0x4A`, status (section 5.3) | Yes |
+| contact info packet (`returnContactInfoPacket(name, byte, byte)`) | Call or SMS alert caller name, likely frame `0x43` | Yes (`Thiravi`) |
+| `sendMobileData5(int, String)` | Another mobile-data frame with text | No |
+| `sendBirthDate` | Rider date of birth | No |
+| `sendCustomTextLineOne` / `Two` | Custom text lines on the display | No |
+| `sendNavigationAssistOn`, `sendNavigationInstructions`, `sendManuverString`, `sendDestReachedCustomText` | Turn-by-turn navigation | No |
+| `sendLocation` | Current location | No |
+| `sendVehicleMode` | Ride mode | No |
+| `sendTSLSignal`, `sendTslTimer` | Traffic-signal / timer feature | No |
+| `sendFollowMeHeadLampTimer`, `sendIdleStartStopTimer` | Cluster settings | No |
+| `calibrationWriteRequest` | Calibration | No |
+
+Frame types seen in `BlePacketsProvider`: initial mobile packet, mobile packet with ACK, VIN, music and play/pause state, vehicle control, calibration, timer control, contact info.
+
+### 11.4 Still to decode (next pass)
+
+1. `com.tvs.bike.core.protocol.BtData`: the field list for the bike-to-app frames (`0x10`, `0x11`, `0x12`, `0x5F`, and others).
+2. `BluetoothUtil.processDialer` and `BleEngine.processBikeWiseIncomingCall`: how the bike's call accept and reject are reported (the `0x10` byte 11 value of 2) and the call-state values.
+3. `BluetoothUtil.processMusicControls` and `processMusicControlsUseBtData`: d-pad and music button codes.
+4. `BluetoothUtil.getNetworkType`, `getCurrentNetworkType` and `getSignalStrength`: the network-type code table and signal range.
+5. `BluetoothUtil.decryptDataForApache`, `encryptDataApache` and `isValidChecksum`: confirm that the obfuscation is a constant XOR of `0xEA` and the exact bike-frame checksum.
+6. `BleEngine.observeDocTransferFromCluster`: the document transfer (Digi Docs) feature.
+
+---
+
+## 12. Digi Docs (document transfer to the cluster)
+
+Source: the iOS app's `BikeBLEManager.sendDocument` and its helpers, written against the APK and checked against a Nov 21 HCI capture (its code comments cite 768,000 bytes in 6,000 chunks). The APK side is `ApacheClusterDataReceiver.handleDocTransferFrame` and `BleEngine.observeDocTransferFromCluster`; it has **not** been decompiled yet, so treat the byte layouts as "implemented and working in the iOS app", not as APK-verified. The 148 s capture analysed in sections 1 to 10 contains no document transfer.
+
+### 12.1 Image format
+
+| Item | Value |
+|---|---|
+| Size | 800 x 480 pixels (APK constants `0x320` x `0x1E0`) |
+| Pixel format | RGB565, 2 bytes per pixel, low byte first |
+| Payload | 800 x 480 x 2 = **768,000 bytes** |
+| Fit | Image scaled to fit, centered, black background |
+| Row order | Rows are sent from the bottom row to the top row (vertical reversal), no horizontal mirror |
+| Slots | Picture number 1 to 5 |
+| Name | Up to 10 ASCII characters (non-ASCII replaced with a space) |
+
+### 12.2 Frames
+
+Unlike the normal app frames, document frames use header `0x5A`, not `0x5B`.
+
+**Init / complete frame, ID `0x53`, 23 bytes**
+
+```
+[0x5A][0x53][ 20 bytes, each XOR 0xEA ][0xFF]
+ body[0]    picture number (1 to 5)
+ body[1..2] total chunk count, big-endian   (6000 for a full image)
+ body[3..4] current chunk, big-endian       (1 for the start frame, total for the end frame)
+ body[5]    status: 1 = start, 3 = complete
+ body[6]    0, except 5 for picture 4 and 10 for picture 5 (meaning unknown)
+ body[7..16] name, ASCII, up to 10 bytes
+ rest       0
+```
+
+**Data chunk, ID `0x55`, 134 bytes**
+
+```
+[0x5A][0x55][ sequence_hi, sequence_lo, 128 data bytes, checksum ] XOR 0xEA [0xFF]
+ sequence   1 to total, big-endian
+ data       128 bytes, zero padded for the last chunk
+ checksum   (0xFF - ((0x5A + 0x55 + sequence_hi + sequence_lo + sum(data)) & 0xFF)) & 0xFF
+```
+
+**Acknowledgement from the bike, ID `0x54`, 23 bytes** (header `0x5A`, body XOR `0xEA` from byte 2 to byte 21)
+
+| Frame byte | Meaning |
+|---|---|
+| 5, 6 | Last chunk number received, big-endian |
+| 7 | Status: 1 = receiving, 3 = complete; anything else is treated as a rejection |
+| 9 to 18 | ASCII label, `Document N` |
+
+### 12.3 Transfer procedure (as implemented)
+
+1. Send the init frame (status 1, current chunk 1). Wait 150 ms.
+2. Send chunks 1 to total in order, as normal writes.
+3. After every 20th chunk (except the last), wait up to 8 s for an acknowledgement with chunk number at least that chunk and status 1. A different status stops the transfer as a rejection.
+4. Send the init frame again with status 3 and current chunk = total.
+5. Wait up to 8 s for an acknowledgement with chunk number at least total and status 3. If it does not arrive, report "sent but unconfirmed".
+6. Limit: 6,000 chunks, which is exactly one full 800 x 480 image.
+7. The periodic `0x4A` status frame is paused during the transfer.
+
+### 12.4 Also sent by the iOS app at connection
+
+| Frame | Purpose |
+|---|---|
+| `0x52` | Rider name (17 ASCII bytes) |
+| `0x4C` | Welcome message: body `00 01` followed by up to 15 ASCII characters of the rider name |
+| `0x4A` | First phone-status frame, then one every 2 s |
+
+The `0x4C` frame is not in the 148 s capture; it comes from the iOS app and the APK's custom-text path (`sendCustomTextLineOne` and `apacheCustomTextLineOneArray`).
+
+---
+
+## 13. Bike-to-app data points: field map, scaling, status
+
+Fields are listed by frame byte (decoded, so byte 2 is the first body byte). "Capture" values come from the 148 s capture, where the bike was stationary. "iOS" is the iOS app's current decoding. "APK" is what the decompiled `ApacheClusterDataReceiver` shows by field name and type only; **the APK scaling code has not been decompiled yet**, so every row marked "raw" still needs its scaling confirmed against `setSpeedometerDataByte5A10`, `5A11`, `5A12`, `5A16`, `5A18` and `5F`.
+
+### 13.1 Frame `0x10` (speedometer 1, ~every 0.3 s)
+
+| Byte | Field | iOS | APK field | Capture | Status |
+|---|---|---|---|---|---|
+| 2 | Speed (km/h) | km/h | `speed` | 0 | Decoded |
+| 3 to 5 | Odometer | 24-bit, /10 km | `odometer` (double) | 275928 | Scale to verify against the cluster |
+| 6 | Fuel level % | % | `fuelLevelPercentage` | 21 | Decoded |
+| 7 | Average speed | km/h | `averageSpeed` | 33 | Decoded |
+| 8 | Mileage | raw | `mileageCaptured` / instant mileage | 165 | **Raw** |
+| 9 | Top speed | km/h | `topSpeed` / `vehicleTopSpeed` | 134 | Decoded |
+| 10 | Throttle | % | `throttlePercentage` | 14 | Check at rest |
+| 11 | Switch status | raw | `switchStatus`, `locationTag` | 0; **2 at 130.3 s** (the reject) | **Raw**; value 2 observed with the call cancel |
+| 12 | 0 to 60 time | /10 s | `currentZeroTo60Time` | 56 = 5.6 s | Decoded |
+| 13 | Average mileage | raw | `averageMileageDirect` | 0 | **Raw** |
+| 14, 15 | Trip F-meter | 16-bit raw | trip meter fields | 0 | **Raw** |
+| 16, 17 | Engine RPM | 16-bit | `engineRpm` (double) | 0 | Decoded |
+| 18 | Checksum | not checked | `checkSum` | | Formula in section 10.1 |
+
+### 13.2 Frame `0x11` (speedometer 2, on change)
+
+| Byte | Field | iOS | APK field | Capture | Status |
+|---|---|---|---|---|---|
+| 2 | Vehicle direction / flags (bit `0x10` = side-stand sensor status in APK) | raw | `vehicleDirection2`; APK reads 1-based bit 5 | 0 | **Mask confirmed in APK; polarity/physical interpretation unverified** |
+| 3 | Vehicle state 1 (bit `0x40` = side-stand status in APK; bit `0x01` = kill-switch status) | raw | `vehicleState1`; APK reads 1-based bits 7 and 1 | `0xC0` | **Masks confirmed in APK; action mapping/polarity still needs controlled confirmation** |
+| 4 | Service reminder | raw | `serviceReminder` | 0 | **Raw** |
+| 5 | Gear | int | `gearPosition` | 0 | Decoded; 0 may mean neutral |
+| 6 | Battery voltage | raw | `batteryVoltage` (**double**, so scaled) | `0x0C` = 12 | **Raw**; scale unknown (looks like volts) |
+| 7 | Speedo software version | raw | `speedoSwVersion` | 4 | **Raw** |
+| 8 | MIL blink code | raw | `isAlertEngineMIL` | 0 | **Raw** |
+| 9 | Vehicle model | raw | | 0 | **Raw** |
+| 10 | Vehicle diagnostics | raw | `vehicleDiagnostics` | `0x20` | **Raw** |
+| 11 | Reserved | raw | | 0 | **Raw** |
+| 12 | **Turn indicator**: 0 off, 1 right, 2 left, 3 hazard | name table | `turnIndicatorStatus` | 2, 2, 2, 0, 1, 0 at 134 to 140 s | Decoded (corrects section 10) |
+| 13 | Engine temperature / tell-tales | raw | `engineTemperature` (has a conversion function) | `0x50` = 80, then 79 at 137.5 s | **Raw**; probably degrees Celsius, offset unknown |
+| 14 | Screen matrix | raw | | `0x23` | **Raw** |
+| 15 | Vehicle state 3 | raw | | 0 | **Raw** |
+| 16 | ABS MIL blink code | raw | | 0 | **Raw** |
+| 17 | Low nibble: **ride mode** (0/9 Urban, 1/10 Rain, 2/11 Tour, 3/12 Rally, 4 Supermoto). High nibble: unknown flag, toggled 2 and 3 | name table | `rideMode`, `rideModeValue` | `0x22` / `0x32` = mode 2 (Tour) | Decoded; high nibble unknown |
+| 18 | Checksum | not checked | | | Section 10.1 |
+
+**Bit positions confirmed from APK static code.** In `ApacheClusterDataReceiver.setSpeedometerDataByte5A11`, the helper converts a 1-based bit position to a zero-based shift. The APK assigns `vehicleState1` bit position 7 (mask `0x40`) to `sideStandStatus`, `vehicleDirection2` bit position 5 (mask `0x10`) to `sideStandSensorStatus`, and `vehicleState1` bit position 1 (mask `0x01`) to `killSwitchStatus`. These establish which bits the APK reads, not the physical polarity or whether “on” means stand down/up. The iOS decoder now uses the same masks.
+
+### 13.3 Frame `0x12` (ride data)
+
+All values are raw in the iOS app and none changed in the capture. The APK has matching fields (`cruisingRange` double, `tripDistance` double, `tripFuel` double, `tripMileage` int, `tripTime` string, `gForce`, `acceleration`, altitude), but scaling is not decoded.
+
+| Byte | Field in iOS | Likely APK field |
+|---|---|---|
+| 2 | Lean angle | derived or `gForce` |
+| 3, 4 | Cruising range (16-bit) | `cruisingRange` |
+| 5 | Wheel angle offset | |
+| 6 | Acceleration | `acceleration` |
+| 7 | Torque | |
+| 8, 9 | Trip distance (16-bit) | `tripDistance` |
+| 10, 11 | Trip time (hours, minutes) | `tripTime` |
+| 12 | Trip mileage | `tripMileage` |
+| 13, 14 | Trip fuel (16-bit) | `tripFuel` |
+| 15 | Overspeed threshold | matches the phone setting sent in `0x4A` byte 3 |
+| 16 | Overspeed setting | |
+
+Capture value of the whole body: `00 00 45 00 0C 00 0C 94 07 29 1F B2 24 5A 01 00 22` (raw hex after XOR); the iOS field map above is what the app applies to it.
+
+### 13.4 Other frames from the bike
+
+| Frame | Seen | iOS handles it? | What it is |
+|---|---|---|---|
+| `0x5F` | Every 10 s, alternating `00` and a `0x20` variant | Stores payload hex | `setSpeedometerDataByte5F`; field map unknown |
+| `0x6B` | 2 in the capture | Yes, `Bike music command: <byte 2>` | **Music command**; not XOR-obfuscated, so the checksum test fails for it by design |
+| `0x7D` | 5 at connect | **No** | ASCII 17-character identifier (looks like a VIN). APK: `handleSpeedOMeterFrame5A7D` |
+| `0x42` (header `0x5B`) | 5 at connect | **No** | Contains the bike's Bluetooth address (value redacted) |
+| `0x16` | Not in the capture | **No** | APK `ApacheSpeedOMeter4`: lap number/time and best-lap fields; this is lap timing, not the A/B/C/day trip-meter set |
+| `0x18` | Not in the capture | **No** | APK `ApacheSpeedOMeter5`: engine load, fuel injection, pressures, temperatures, voltage, runtime and distance-traveled fields; no A/B/C/day trip-meter set |
+| `0x54` | Document ack | Yes | Section 12 |
+| TPMS | Not in the capture | **No** | APK has tyre pressure, temperature and battery fields (front and rear) |
+
+### 13.5 iOS code review against the above
+
+1. **Matches the protocol:** frame builder (`5B`, XOR `0xEA`, `FF`), the `0x4A` layout including the battery bucket and 12-hour clock, the 2 s status rhythm, the 20-byte and 23-byte frame handling, the `0x6B` exception.
+2. **`0x4A` gaps:** byte 10 (missed calls), 11 (network type), 15 (call state) and 16 (voice assist) are always 0, and byte 3 is fixed at `0x78`. The APK takes byte 3 from the overspeed setting.
+3. **Mislabelled in the UI model:** `turnSignalCode` is right. `switchStatusRaw` and `locationTagRaw` both read byte 11 of `0x10`; the capture shows byte 11 = 2 during the call reject, so treat it as the switch status.
+4. **Not decoded:** `0x7D` vehicle identifier (raw value withheld), `0x16`, `0x18`, TPMS, and the unknown bits above.
+5. **Fields stored raw until scaling is confirmed:** battery voltage, engine temperature, cruising range, trip distance, trip fuel, odometer scale.
+
+
+### 13.6 Action-marker session, 2026-11-23
+
+The iOS Xcode log for this session covers `05:38:14Z` to `05:39:45Z`: 577 notifications, 40 writes, all 40 with ATT success responses, six user action markers, and one disconnect with CoreBluetooth reporting an unexpected connection timeout. The bike continued notifying through approximately `05:39:33Z`; the disconnect callback arrived about 12 seconds later. The recurring `0x4A` status writes are logged about every 2 seconds through `05:39:32Z`. ATT success confirms the GATT write response, not that the bike application acted on the frame.
+
+The `0x11` frame byte 3 (APK `vehicleState1`) changes among `0xC0`, `0x80`, `0x00`, and `0x40`. Applying the APK's bit masks, side-stand status (mask `0x40`) is 1 for `0xC0` and `0x40`, and 0 for `0x80` and `0x00`. Kill-switch status (mask `0x01`) is 0 in every observed value. Byte 2 (`vehicleDirection2`) stays zero, so the APK's side-stand-sensor bit (`0x10`) also stays clear.
+
+Marker comparisons are suggestive but not conclusive: the “Side stand is on” marker at `05:38:29Z` is followed by a `0xC0` to `0x80` change at `05:38:33Z`; “Side stand off” at `05:38:38Z` is followed by no change in the APK side-stand bit; “Kill switch off” at `05:38:48Z` is followed by `0x80` to `0x00` at `05:38:49Z`, which changes neither the APK side-stand bit nor kill-switch bit; and “Kill switch on” at `05:38:54Z` is followed by `0x00` to `0x40` at `05:38:59Z`, changing the APK side-stand bit while the kill-switch bit remains clear. Because each marker timestamp records when the note was submitted (not necessarily when the physical action occurred), and some markers combine multiple actions, this capture cannot assign those raw transitions to a control with confidence.
+
+The `0x10` fuel byte is 17 at connection and changes to 14 by `05:38:17Z`, then remains 14 through the last `0x10` notification at `05:39:33Z`. This supports the low-fuel observation for this session. The final `0x10` and `0x11` frames also change at `05:39:33Z`, but there is no action marker at that time, so their cause is unknown.
+
+### 13.7 Trip A, B, C, and Day Trip meters
+
+The analyzed Apache BLE receiver (`ApacheClusterDataReceiver`) assigns a single set of `tripDistance`, `tripTime`, `tripMileage`, and `tripFuel` from frame `0x12`. It does not assign separate Trip A, Trip B, Trip C, or Day Trip values from the live BLE frames inspected here. The APK has `tripADistance` and `tripBDistance` properties in save-ride/API data models, but those model fields alone do not show that the values are read from live bike BLE notifications. Its `0x16` frame model is lap timing; `0x18` contains engine/diagnostic values. The iOS app labels `0x12` as current ride statistics and marks the four cluster meters unavailable from the currently decoded BLE feed.
+
+**Status:** fetching all four cluster meters remains unresolved. It needs a capture that includes their values changing (ideally while selecting each meter on the cluster) and identification of the corresponding notification or other authorized data source.
