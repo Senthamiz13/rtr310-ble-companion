@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var bike: BikeBLEManager
     @EnvironmentObject private var digiDocs: DigiDocsStore
     @State private var showingSettings = false
+    @State private var actionNote = ""
 
     var body: some View {
         NavigationStack {
@@ -13,6 +14,7 @@ struct ContentView: View {
                     brandCard
                     connectionCard
                     telemetryGrid
+                    actionMarkerCard
                     additionalTelemetry
                     digiDocsCard
                 }
@@ -153,6 +155,35 @@ struct ContentView: View {
             .overlay { RoundedRectangle(cornerRadius: 16).stroke(RTRTheme.border, lineWidth: 1) }
         }
         .buttonStyle(.plain)
+    }
+
+    private var actionMarkerCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Mark an action", systemImage: "bookmark")
+                .font(.headline)
+            Text("Add a timestamped note to the BLE log just before or after you act on the bike.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                TextField("e.g. Pressed D-pad right", text: $actionNote)
+                    .textFieldStyle(.roundedBorder)
+                    .submitLabel(.done)
+                    .onSubmit { recordAction() }
+                    .accessibilityIdentifier("bleActionMarkerField")
+                Button("Log") { recordAction() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(actionNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 16))
+        .overlay { RoundedRectangle(cornerRadius: 16).stroke(RTRTheme.border, lineWidth: 1) }
+    }
+
+    private func recordAction() {
+        bike.markUserAction(actionNote)
+        actionNote = ""
     }
 
     private var additionalTelemetry: some View {

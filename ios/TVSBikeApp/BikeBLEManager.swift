@@ -167,6 +167,12 @@ final class BikeBLEManager: NSObject, ObservableObject {
         connectedPeripheral?.state == .connected
     }
 
+    func markUserAction(_ action: String) {
+        let note = action.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !note.isEmpty else { return }
+        logEvent("user_action_marker", details: ["action": note])
+    }
+
     func scan() {
         guard bluetoothState == .poweredOn else {
             connectionMessage = "Turn on Bluetooth and allow access to nearby devices."
