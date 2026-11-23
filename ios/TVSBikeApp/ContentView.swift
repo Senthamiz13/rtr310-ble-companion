@@ -18,7 +18,10 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(RTRTheme.background.ignoresSafeArea())
+            .tint(RTRTheme.accent)
+            .toolbarBackground(RTRTheme.background, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -33,6 +36,7 @@ struct ContentView: View {
                 }
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     private var brandCard: some View {
@@ -55,7 +59,7 @@ struct ContentView: View {
         .padding(.horizontal, 22)
         .background(
             LinearGradient(
-                colors: [Color(red: 0.12, green: 0.16, blue: 0.21), Color(red: 0.035, green: 0.045, blue: 0.06)],
+                colors: [RTRTheme.panel, RTRTheme.background],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             ),
@@ -63,7 +67,7 @@ struct ContentView: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: 22)
-                .stroke(.white.opacity(0.08), lineWidth: 1)
+                .stroke(RTRTheme.border, lineWidth: 1)
         }
     }
 
@@ -71,7 +75,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: bike.isConnected ? "dot.radiowaves.left.and.right" : "dot.radiowaves.left.and.right")
-                    .foregroundStyle(bike.isConnected ? .green : .secondary)
+                    .foregroundStyle(bike.isConnected ? RTRTheme.status : Color.secondary)
                 Text(bike.isConnected ? "Connected" : "Not connected")
                     .font(.headline)
                 Spacer()
@@ -91,7 +95,8 @@ struct ContentView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 16))
+        .overlay { RoundedRectangle(cornerRadius: 16).stroke(RTRTheme.border, lineWidth: 1) }
     }
 
     private var telemetryGrid: some View {
@@ -117,9 +122,9 @@ struct ContentView: View {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text.image")
                     .font(.title2)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(RTRTheme.accent)
                     .frame(width: 42, height: 42)
-                    .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                    .background(RTRTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Digi Docs").font(.headline).foregroundStyle(.primary)
                     Text("\(digiDocs.documents.count) saved on this iPhone")
@@ -133,7 +138,8 @@ struct ContentView: View {
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 16))
+            .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 16))
+            .overlay { RoundedRectangle(cornerRadius: 16).stroke(RTRTheme.border, lineWidth: 1) }
         }
         .buttonStyle(.plain)
     }
@@ -217,7 +223,8 @@ struct ContentView: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.background, in: RoundedRectangle(cornerRadius: 16))
+                .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 16))
+                .overlay { RoundedRectangle(cornerRadius: 16).stroke(RTRTheme.border, lineWidth: 1) }
             }
         }
     }
@@ -240,6 +247,14 @@ struct ContentView: View {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+private enum RTRTheme {
+    static let background = Color(red: 16.0 / 255.0, green: 20.0 / 255.0, blue: 24.0 / 255.0)
+    static let panel = Color(red: 23.0 / 255.0, green: 29.0 / 255.0, blue: 34.0 / 255.0)
+    static let border = Color(red: 43.0 / 255.0, green: 51.0 / 255.0, blue: 58.0 / 255.0)
+    static let accent = Color(red: 233.0 / 255.0, green: 89.0 / 255.0, blue: 55.0 / 255.0)
+    static let status = Color(red: 200.0 / 255.0, green: 241.0 / 255.0, blue: 105.0 / 255.0)
 }
 
 private struct BikeSettingsView: View {
@@ -333,9 +348,12 @@ private struct TelemetryTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Label(title, systemImage: icon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Label {
+                Text(title).foregroundStyle(.secondary)
+            } icon: {
+                Image(systemName: icon).foregroundStyle(RTRTheme.accent)
+            }
+            .font(.caption)
                 .lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value).font(.title2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
@@ -344,6 +362,8 @@ private struct TelemetryTile: View {
         }
         .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
         .padding(12)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14))
+        .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 14))
+        .overlay { RoundedRectangle(cornerRadius: 14).stroke(RTRTheme.border, lineWidth: 1) }
+        .monospacedDigit()
     }
 }
