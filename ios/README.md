@@ -31,6 +31,8 @@ BLE hardware behavior cannot be tested in the iOS simulator; use a physical iPho
 
 RTR Companion is a fan-made, open-source project for Apache RTR owners. It is an independent companion and does not replace the official TVS app. It is not affiliated with, endorsed by, or supported by TVS Motor Company. The software is experimental, provided as-is, and used at the rider's own risk. Compatibility and behavior may vary by bike and firmware. Follow the official owner's manual and do not interact with the app while riding. Product names and trademarks belong to their respective owners.
 
+The dashboard header uses a TVS Apache RTR 310 product image sourced from the [official product page](https://www.tvsmotor.com/tvs-apache/apache-rtr-310). TVS Motor Company retains all rights; this project does not have an image reuse license or endorsement from TVS.
+
 ### Digi Docs transfer
 
 Choose a photo, crop and position it, save it, connect to the bike, choose a slot, then tap **Send to bike**. The app fits the crop inside an 800 × 480 canvas, converts it to RGB565, reverses the vertical row order, and sends complete row-major scanlines without a horizontal mirror. It sends the captured `0x53` start frame and 128-byte `0x55` chunks, checks `0x54` progress acknowledgements every 20 chunks, and sends the completion frame. This produces 768,000 bytes (6,000 chunks), matching the supplied HCI capture. Validate with a non-sensitive test image and keep the phone connected until the bike confirms completion.

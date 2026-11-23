@@ -40,23 +40,34 @@ struct ContentView: View {
     }
 
     private var brandCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("RTR 310 BLE Companion")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.white)
-            Text("Independent Bluetooth companion")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.72))
-            Text("Fan-made · Open source · Does not replace the TVS app")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(0.8))
-            Text("Unofficial and experimental · Use at your own risk")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.58))
+        HStack(spacing: 10) {
+            Image("ApacheRTR310")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 132, height: 90)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("RTR 310 BLE Companion")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Independent Bluetooth companion")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.72))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Fan-made · Open source")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(RTRTheme.status)
+                Text("Does not replace TVS app · Use at your own risk")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 132, alignment: .leading)
-        .padding(.horizontal, 22)
+        .frame(height: 142, alignment: .leading)
+        .padding(.horizontal, 12)
         .background(
             LinearGradient(
                 colors: [RTRTheme.panel, RTRTheme.background],
