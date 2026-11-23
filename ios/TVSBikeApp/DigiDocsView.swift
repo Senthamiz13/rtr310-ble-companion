@@ -27,7 +27,7 @@ struct DigiDocsView: View {
             Section("Bike transfer") {
                 Label(bike.isConnected ? bike.connectionMessage : "Connect to the bike before uploading.",
                       systemImage: bike.isConnected ? "dot.radiowaves.left.and.right" : "exclamationmark.bluetooth")
-                    .font(.footnote).foregroundColor(bike.isConnected ? .secondary : .orange)
+                    .font(.footnote).foregroundStyle(bike.isConnected ? Color.secondary : RTRTheme.accent)
                 Picker("Bike document slot", selection: $selectedSlot) {
                     ForEach(1...5, id: \.self) { slot in Text("Slot \(slot)").tag(slot) }
                 }
@@ -78,6 +78,9 @@ struct DigiDocsView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(RTRTheme.background)
+        .listRowBackground(RTRTheme.panel)
         .navigationTitle("Digi Docs")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: selectedPhoto) { item in
@@ -107,7 +110,7 @@ struct DigiDocsView: View {
         if let image = UIImage(contentsOfFile: store.imageURL(for: document).path) {
             Image(uiImage: image).resizable().scaledToFill().frame(width: 58, height: 70).clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
-            Image(systemName: "doc.text.image").frame(width: 58, height: 70).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            Image(systemName: "doc.text.image").frame(width: 58, height: 70).background(RTRTheme.border, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 

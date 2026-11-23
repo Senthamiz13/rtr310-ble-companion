@@ -260,10 +260,10 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
-private enum RTRTheme {
-    static let background = Color(red: 16.0 / 255.0, green: 20.0 / 255.0, blue: 24.0 / 255.0)
-    static let panel = Color(red: 23.0 / 255.0, green: 29.0 / 255.0, blue: 34.0 / 255.0)
-    static let border = Color(red: 43.0 / 255.0, green: 51.0 / 255.0, blue: 58.0 / 255.0)
+enum RTRTheme {
+    static let background = Color.black
+    static let panel = Color(red: 14.0 / 255.0, green: 16.0 / 255.0, blue: 18.0 / 255.0)
+    static let border = Color(red: 40.0 / 255.0, green: 43.0 / 255.0, blue: 46.0 / 255.0)
     static let accent = Color(red: 233.0 / 255.0, green: 89.0 / 255.0, blue: 55.0 / 255.0)
     static let status = Color(red: 200.0 / 255.0, green: 241.0 / 255.0, blue: 105.0 / 255.0)
 }
@@ -337,6 +337,9 @@ private struct BikeSettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(RTRTheme.background)
+        .listRowBackground(RTRTheme.panel)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { riderNameDraft = bike.riderName }
