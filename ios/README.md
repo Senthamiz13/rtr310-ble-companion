@@ -29,7 +29,7 @@ Launch the app once and allow Bluetooth access. After that, the app can reconnec
 
 BLE hardware behavior cannot be tested in the iOS simulator; use a physical iPhone to verify pairing, background reconnection, and telemetry.
 
-The app uses a text-only product reference and does not bundle TVS logos or promotional artwork. This is an unofficial independent project and is not endorsed by TVS Motor Company.
+RTR Companion is a fan-made, open-source project for Apache RTR owners. It is an independent companion and does not replace the official TVS app. It is not affiliated with, endorsed by, or supported by TVS Motor Company. The software is experimental, provided as-is, and used at the rider's own risk. Compatibility and behavior may vary by bike and firmware. Follow the official owner's manual and do not interact with the app while riding. Product names and trademarks belong to their respective owners.
 
 ### Digi Docs transfer
 

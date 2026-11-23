@@ -43,9 +43,15 @@ struct ContentView: View {
             Text("Independent Bluetooth companion")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.72))
+            Text("Fan-made · Open source · Does not replace the TVS app")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.8))
+            Text("Unofficial and experimental · Use at your own risk")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.58))
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 112, alignment: .leading)
+        .frame(height: 132, alignment: .leading)
         .padding(.horizontal, 22)
         .background(
             LinearGradient(
