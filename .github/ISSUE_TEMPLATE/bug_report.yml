@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a problem with the RTR Companion app or tools.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve this fan-made project. Please do not include personal information, phone numbers, precise locations, VINs, pairing keys, private BLE captures, or images of your documents. Redact logs before attaching them.
+  - type: input
+    id: component
+    attributes:
+      label: App or tool
+      description: Which part of the project has the issue?
+      placeholder: iOS app, Python dashboard, BLE probe
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version or commit
+      placeholder: Version number or Git commit, if known
+  - type: textarea
+    id: environment
+    attributes:
+      label: Device and environment
+      description: Phone/computer model, OS version, and bike model/year/firmware if known.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: What did you do before the issue occurred?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: sanitized-logs
+    attributes:
+      label: Sanitized logs (optional)
+      description: Remove identifiers, phone/caller details, pairing data, ride locations, and document contents first.
+      render: text

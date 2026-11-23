@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest an improvement or new companion feature.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is an independent, fan-made project and cannot replace or represent the official TVS app. Please avoid including personal or sensitive data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      placeholder: Describe the rider need or current limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like the app to do?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include bike model/year or app platform if relevant. Do not attach private logs or documents.

@@ -60,6 +60,10 @@ Start with [`docs/bike_ble_protocol.md`](docs/bike_ble_protocol.md). The notes d
 
 Raw HCI captures can contain device identifiers, pairing traffic, personal display text, caller information, or document image data. Keep them local and inspect/redact them before sharing. Session logs and local datasets are excluded by `.gitignore`.
 
+## Feedback and support
+
+Use [GitHub Issues](https://github.com/Senthamiz13/rtr310-ble-companion/issues/new/choose) to [report a bug](https://github.com/Senthamiz13/rtr310-ble-companion/issues/new?template=bug_report.yml) or [request a feature](https://github.com/Senthamiz13/rtr310-ble-companion/issues/new?template=feature_request.yml). Include the app/tool, OS version, bike model/year, steps to reproduce, and what you expected versus what happened. Redact BLE logs and screenshots before sharing; never post pairing keys, VINs, caller details, ride locations, or document images.
+
 ## License
 
 No license is granted for reuse at this time. Public visibility on GitHub does not itself grant permission to copy, modify, or redistribute this project's code. Third-party marks and materials remain the property of their respective owners.
