@@ -11,11 +11,12 @@ struct DigiDocsView: View {
     @State private var errorMessage: String?
     @State private var sendingDocumentID: UUID?
     @State private var selectedSlot = 1
+    @State private var previewDocument: BikeDocument?
 
     var body: some View {
         List {
             Section {
-                Text("Choose a photo, crop it to the bike’s portrait display, then send it while connected.")
+                Text("Choose a photo, crop it to the bike’s 5:3 display, then send it while connected.")
                     .font(.footnote).foregroundStyle(.secondary)
                 TextField("Document name", text: $documentName)
                     .textInputAutocapitalization(.words)
@@ -29,7 +30,7 @@ struct DigiDocsView: View {
                       systemImage: bike.isConnected ? "dot.radiowaves.left.and.right" : "exclamationmark.bluetooth")
                     .font(.footnote).foregroundStyle(bike.isConnected ? Color.secondary : RTRTheme.accent)
                 Picker("Bike document slot", selection: $selectedSlot) {
-                    ForEach(1...5, id: \.self) { slot in Text("Slot \(slot)").tag(slot) }
+                    ForEach(1...3, id: \.self) { slot in Text("Slot \(slot)").tag(slot) }
                 }
                 if bike.documentTransferActive {
                     ProgressView(value: bike.documentTransferProgress)
@@ -100,6 +101,30 @@ struct DigiDocsView: View {
                 }
             }
         }
+        .sheet(item: $previewDocument) { document in
+            NavigationStack {
+                Group {
+                    if let image = UIImage(contentsOfFile: store.imageURL(for: document).path) {
+                        Image(uiImage: image).resizable().scaledToFit().padding()
+                    } else {
+                        VStack(spacing: 10) {
+                            Image(systemName: "doc.questionmark")
+                                .font(.largeTitle)
+                                .foregroundStyle(.secondary)
+                            Text("Document unavailable")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RTRTheme.background)
+                .navigationTitle(document.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { previewDocument = nil } } }
+            }
+            .presentationDetents([.large])
+        }
         .alert("Digi Docs", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "Please try again.") }
@@ -107,11 +132,19 @@ struct DigiDocsView: View {
 
     @ViewBuilder
     private func thumbnail(for document: BikeDocument) -> some View {
-        if let image = UIImage(contentsOfFile: store.imageURL(for: document).path) {
-            Image(uiImage: image).resizable().scaledToFill().frame(width: 58, height: 70).clipShape(RoundedRectangle(cornerRadius: 8))
-        } else {
-            Image(systemName: "doc.text.image").frame(width: 58, height: 70).background(RTRTheme.border, in: RoundedRectangle(cornerRadius: 8))
+        Button { previewDocument = document } label: {
+            Group {
+                if let image = UIImage(contentsOfFile: store.imageURL(for: document).path) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Image(systemName: "doc.text.image").frame(width: 58, height: 70).background(RTRTheme.border)
+                }
+            }
+            .frame(width: 58, height: 70)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("View \(document.name)")
     }
 
     @MainActor

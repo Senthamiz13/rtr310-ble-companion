@@ -322,14 +322,19 @@ Use it to validate incoming frames, and to tell real state changes from corrupte
 | Clock frame byte 11 going to 3 | A call or notification state flag. It rose ~0.9 s before the first name frame. | Medium. It stays at 3 after the call ended and became 4 at 142.5 s, so it may be an event counter rather than a plain "ringing" flag. |
 | Bike `0x10` byte 11 = 2 (130.27 s) | **The rider's cancel / reject**, reported by the bike. It appears 0.1 s after the last name frame and nowhere else. | Medium. The app stopped sending names at 130.16 s, just before it. It could instead be a fixed 4 s ring timeout. |
 
-### 10.4 D-pad, best reading
+### 10.4 D-pad music controls, owner-confirmed
 
-| Piece | Reading | Confidence |
-|---|---|---|
-| Frame `0x11` byte 12 | **Button code**: 0 = nothing pressed, 1 and 2 = two different presses. Only these two codes appear. | Medium |
-| Frame `0x11` byte 13 (80 to 79) | A value that the d-pad changed (a setting or menu index, for example). Unknown. | Low |
+The rider confirmed the physical double-press behavior while using the TVS app:
 
-With about six presses, the capture cannot say which of up, down, left, right or OK gives code 1 or 2. It also cannot say whether the call cancel was a separate code or the `0x10` byte 11 value above.
+| Physical control | Bike music command (`0x6B`, byte 2) | Default phone action in RTR Link |
+|---|---:|---|
+| Enter / OK, double press | `3` | Next track |
+| Back, double press | `4` | Previous track |
+| Down, double press | `2` | Pause |
+
+The apps let the rider remap each reported bike command to no action, next track, previous track, play, pause, or play/pause. Android also supports volume up/down. iOS omits volume actions because it cannot set system volume programmatically. This changes the phone action only; it does not reprogram the bike's physical controls. Captured repeated copies of the same `0x6B` command within 100 ms are treated as duplicate BLE notifications and collapsed to one action. The older interpretation of `0x11` byte 12 as a d-pad code was incorrect; that field is part of the vehicle-state frame, not the music-command event.
+
+Mapping selections are now persisted as soon as they change in Settings (and again on Save). If an action still appears not to work, check the session log for `bike_data_changed` on `0x6B` and then `music_command_action`: absence of the first means the bike did not send the button event; presence of the first but absence of the second points to command handling or a duplicate suppression. On iOS, transport actions are sent through `MPMusicPlayerController.systemMusicPlayer`; they control Apple Music playback and cannot reliably control third-party players. iOS volume changes are unavailable by platform design.
 
 ### 10.5 Signal, battery and the rest of the app-to-bike data
 
@@ -340,11 +345,9 @@ With about six presses, the capture cannot say which of up, down, left, right or
 | Call alert | `0x43` caller name and status word, as above | Medium |
 | SMS, missed call, navigation, and similar | Not exercised in this capture | None |
 
-### 10.6 How to settle it
+### 10.6 Remaining capture questions
 
-1. **Tell me the order of what you did**: which d-pad buttons, how many times, and roughly when the call started and was cancelled. That alone may map most of the codes above.
-2. **Run controlled captures** with one action each and 10 s of silence between actions: up x3, down x3, left x3, right x3, OK x3, then an incoming call rejected from the d-pad, then answered, then missed.
-3. **Probe from Python**, now that it works: send the clock frame with different byte 11 values and `0x43` names, and watch the cluster. This answers the call question directly, and it can settle battery and signal too.
+The owner-confirmed double-press mapping above settles the music controls. It does not establish mappings for the other d-pad directions or single presses, nor does it explain the separate `0x11` state transitions observed in older captures. Those should remain unassigned until a capture isolates each action; do not label `0x11` byte 12 as a music or d-pad command.
 
 ---
 
@@ -469,6 +472,7 @@ Unlike the normal app frames, document frames use header `0x5A`, not `0x5B`.
 5. Wait up to 8 s for an acknowledgement with chunk number at least total and status 3. If it does not arrive, report "sent but unconfirmed".
 6. Limit: 6,000 chunks, which is exactly one full 800 x 480 image.
 7. The periodic `0x4A` status frame is paused during the transfer.
+8. After a successful final bike acknowledgement, RTR Link writes a `0x4C` custom-text line using the observed free-text marker `0x41`, displays `<name> Done`, waits 2 seconds, and sends an all-zero text body to clear it. The bike text line holds 15 ASCII characters, so the name is capped at 10 to keep ` Done` visible.
 
 ### 12.4 Also sent by the iOS app at connection
 
@@ -509,7 +513,7 @@ Fields are listed by frame byte (decoded, so byte 2 is the first body byte). "Ca
 | Byte | Field | iOS | APK field | Capture | Status |
 |---|---|---|---|---|---|
 | 2 | Vehicle direction / flags (bit `0x10` = side-stand sensor status in APK) | raw | `vehicleDirection2`; APK reads 1-based bit 5 | 0 | **Mask confirmed in APK; polarity/physical interpretation unverified** |
-| 3 | Vehicle state 1 (bit `0x40` = side-stand status in APK; bit `0x01` = kill-switch status) | raw | `vehicleState1`; APK reads 1-based bits 7 and 1 | `0xC0` | **Masks confirmed in APK; action mapping/polarity still needs controlled confirmation** |
+| 3 | Vehicle state 1 (bit `0x40` = side-stand status in APK; bit `0x01` = kill-switch status) | raw | `vehicleState1`; APK reads 1-based bits 7 and 1 | `0xC0` | **Side-stand state mapping confirmed by rider: set = stand down, clear = stand up** |
 | 4 | Service reminder | raw | `serviceReminder` | 0 | **Raw** |
 | 5 | Gear | int | `gearPosition` | 0 | Decoded; 0 may mean neutral |
 | 6 | Battery voltage | raw | `batteryVoltage` (**double**, so scaled) | `0x0C` = 12 | **Raw**; scale unknown (looks like volts) |
@@ -526,11 +530,11 @@ Fields are listed by frame byte (decoded, so byte 2 is the first body byte). "Ca
 | 17 | Low nibble: **ride mode** (0/9 Urban, 1/10 Rain, 2/11 Tour, 3/12 Rally, 4 Supermoto). High nibble: unknown flag, toggled 2 and 3 | name table | `rideMode`, `rideModeValue` | `0x22` / `0x32` = mode 2 (Tour) | Decoded; high nibble unknown |
 | 18 | Checksum | not checked | | | Section 10.1 |
 
-**Bit positions confirmed from APK static code.** In `ApacheClusterDataReceiver.setSpeedometerDataByte5A11`, the helper converts a 1-based bit position to a zero-based shift. The APK assigns `vehicleState1` bit position 7 (mask `0x40`) to `sideStandStatus`, `vehicleDirection2` bit position 5 (mask `0x10`) to `sideStandSensorStatus`, and `vehicleState1` bit position 1 (mask `0x01`) to `killSwitchStatus`. These establish which bits the APK reads, not the physical polarity or whether “on” means stand down/up. The iOS decoder now uses the same masks.
+**Bit positions confirmed from APK static code.** In `ApacheClusterDataReceiver.setSpeedometerDataByte5A11`, the helper converts a 1-based bit position to a zero-based shift. The APK assigns `vehicleState1` bit position 7 (mask `0x40`) to `sideStandStatus`, `vehicleDirection2` bit position 5 (mask `0x10`) to `sideStandSensorStatus`, and `vehicleState1` bit position 1 (mask `0x01`) to `killSwitchStatus`. The rider has verified against the bike that the decoded side-stand status reports the actual state: set means down, clear means up. Both apps present this as “Down” / “Up.”
 
 ### 13.3 Frame `0x12` (ride data)
 
-All values are raw in the iOS app and none changed in the capture. The APK has matching fields (`cruisingRange` double, `tripDistance` double, `tripFuel` double, `tripMileage` int, `tripTime` string, `gForce`, `acceleration`, altitude), but scaling is not decoded.
+The `0x12` frame supplies one ride-statistics set. The rider confirmed that this set is Trip A, the distance is in tenths of a kilometre (`3194` = `319.4 km`), and the overspeed threshold matches the bike setting in km/h. Both apps show only these confirmed values, plus the decoded ride time. Other `0x12` fields remain hidden in the UI because their units or meaning are unconfirmed.
 
 | Byte | Field in iOS | Likely APK field |
 |---|---|---|
@@ -539,21 +543,21 @@ All values are raw in the iOS app and none changed in the capture. The APK has m
 | 5 | Wheel angle offset | |
 | 6 | Acceleration | `acceleration` |
 | 7 | Torque | |
-| 8, 9 | Trip distance (16-bit) | `tripDistance` |
+| 8, 9 | Trip A distance (16-bit), tenths of km | `tripDistance` |
 | 10, 11 | Trip time (hours, minutes) | `tripTime` |
 | 12 | Trip mileage | `tripMileage` |
 | 13, 14 | Trip fuel (16-bit) | `tripFuel` |
-| 15 | Overspeed threshold | matches the phone setting sent in `0x4A` byte 3 |
+| 15 | Overspeed threshold in km/h | matches the bike setting |
 | 16 | Overspeed setting | |
 
-Capture value of the whole body: `00 00 45 00 0C 00 0C 94 07 29 1F B2 24 5A 01 00 22` (raw hex after XOR); the iOS field map above is what the app applies to it.
+Capture value of the whole body: `00 00 45 00 0C 00 0C 94 07 29 1F B2 24 5A 01 00 22` (raw hex after XOR); the iOS field map above is what the app applies to it. In this example, distance `0x0794` (1940) would display as `194.0 km`; the rider separately confirmed the same tenths-of-kilometre scaling with value 3194 = 319.4 km.
 
 ### 13.4 Other frames from the bike
 
 | Frame | Seen | iOS handles it? | What it is |
 |---|---|---|---|
 | `0x5F` | Every 10 s, alternating `00` and a `0x20` variant | Stores payload hex | `setSpeedometerDataByte5F`; field map unknown |
-| `0x6B` | 2 in the capture | Yes, `Bike music command: <byte 2>` | **Music command**; not XOR-obfuscated, so the checksum test fails for it by design |
+| `0x6B` | 2 in the capture | Yes, configurable phone media action | **Music command**; byte 2 values 2/3/4 are Down/Enter/Back double-press events per owner confirmation (section 10.4). Not XOR-obfuscated, so the checksum test fails for it by design |
 | `0x7D` | 5 at connect | **No** | ASCII 17-character identifier (looks like a VIN). APK: `handleSpeedOMeterFrame5A7D` |
 | `0x42` (header `0x5B`) | 5 at connect | **No** | Contains the bike's Bluetooth address (value redacted) |
 | `0x16` | Not in the capture | **No** | APK `ApacheSpeedOMeter4`: lap number/time and best-lap fields; this is lap timing, not the A/B/C/day trip-meter set |
@@ -567,7 +571,7 @@ Capture value of the whole body: `00 00 45 00 0C 00 0C 94 07 29 1F B2 24 5A 01 0
 2. **`0x4A` gaps:** byte 10 (missed calls), 11 (network type), 15 (call state) and 16 (voice assist) are always 0, and byte 3 is fixed at `0x78`. The APK takes byte 3 from the overspeed setting.
 3. **Mislabelled in the UI model:** `turnSignalCode` is right. `switchStatusRaw` and `locationTagRaw` both read byte 11 of `0x10`; the capture shows byte 11 = 2 during the call reject, so treat it as the switch status.
 4. **Not decoded:** `0x7D` vehicle identifier (raw value withheld), `0x16`, `0x18`, TPMS, and the unknown bits above.
-5. **Fields stored raw until scaling is confirmed:** battery voltage, engine temperature, cruising range, trip distance, trip fuel, odometer scale.
+5. **Fields stored raw until scaling is confirmed:** battery voltage, engine temperature, cruising range, trip fuel, odometer scale. Trip A distance uses tenths of a kilometre, as confirmed by the rider.
 
 
 ### 13.6 Action-marker session, 2026-11-23
@@ -582,6 +586,12 @@ The `0x10` fuel byte is 17 at connection and changes to 14 by `05:38:17Z`, then 
 
 ### 13.7 Trip A, B, C, and Day Trip meters
 
-The analyzed Apache BLE receiver (`ApacheClusterDataReceiver`) assigns a single set of `tripDistance`, `tripTime`, `tripMileage`, and `tripFuel` from frame `0x12`. It does not assign separate Trip A, Trip B, Trip C, or Day Trip values from the live BLE frames inspected here. The APK has `tripADistance` and `tripBDistance` properties in save-ride/API data models, but those model fields alone do not show that the values are read from live bike BLE notifications. Its `0x16` frame model is lap timing; `0x18` contains engine/diagnostic values. The iOS app labels `0x12` as current ride statistics and marks the four cluster meters unavailable from the currently decoded BLE feed.
+The analyzed Apache BLE receiver (`ApacheClusterDataReceiver`) assigns a single set of `tripDistance`, `tripTime`, `tripMileage`, and `tripFuel` from frame `0x12`. The rider has identified the currently observed set as Trip A. The frame does not establish separate live values for Trip B, Trip C, or Day Trip. The APK has `tripADistance` and `tripBDistance` properties in save-ride/API data models, but those model fields alone do not show that the values are read from live bike BLE notifications. Its `0x16` frame model is lap timing; `0x18` contains engine/diagnostic values. The app now presents the confirmed `0x12` distance as Trip A and omits unsupported extra trip-meter placeholders.
 
 **Status:** fetching all four cluster meters remains unresolved. It needs a capture that includes their values changing (ideally while selecting each meter on the cluster) and identification of the corresponding notification or other authorized data source.
+
+### 13.8 BLE session logs
+
+The iOS app writes every received notification as `bike_notification_rx` and every actual phone-to-bike GATT write as `write_tx` to Xcode's debug console and the session JSONL file. Records include wire bytes, decoded bytes when the frame format is known, and byte-level mapping notes. Digi Docs chunks are logged too, so a full transfer creates many large console records. The iOS logger redacts identity-bearing `0x7D` and `0x42` frame contents. Android continues to use change-only `bike_data_changed` records with mapped values.
+
+The Android parser was missing `0x11` byte 4 (`serviceReminderRaw`); it is now included. Remaining mappings are incomplete: `0x7D` vehicle identifier and `0x42` Bluetooth address are intentionally not exposed; `0x16` lap timing, `0x18` engine/diagnostic values, and TPMS are not parsed. The `0x5F` body is logged as raw unmapped payload. These are protocol gaps inferred from the APK reverse-engineering notes, not fields confirmed in the latest bike capture.

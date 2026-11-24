@@ -14,7 +14,6 @@ struct ContentView: View {
                     brandCard
                     connectionCard
                     telemetryGrid
-                    actionMarkerCard
                     additionalTelemetry
                     digiDocsCard
                 }
@@ -50,7 +49,7 @@ struct ContentView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("RTR 310 BLE Companion")
+                Text("RTR Link")
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
                     .fixedSize(horizontal: false, vertical: true)
@@ -68,8 +67,8 @@ struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 142, alignment: .leading)
-        .padding(.horizontal, 12)
+        .frame(height: 160, alignment: .leading)
+        .padding(.horizontal, 14)
         .background(
             LinearGradient(
                 colors: [RTRTheme.panel, RTRTheme.background],
@@ -120,6 +119,7 @@ struct ContentView: View {
             TelemetryTile(title: "Fuel", value: formatted(bike.telemetry.fuelPercent), unit: "%", icon: "fuelpump")
             TelemetryTile(title: "Gear", value: formatted(bike.telemetry.gear), unit: "", icon: "gearshape")
             TelemetryTile(title: "Riding mode", value: bike.telemetry.rideModeName ?? "—", unit: "", icon: "steeringwheel")
+            TelemetryTile(title: "Side stand", value: bike.telemetry.sideStandStatus.map { $0 ? "Down" : "Up" } ?? "—", unit: "", icon: "figure.stand")
             TelemetryTile(title: "Indicators", value: bike.telemetry.turnSignalName ?? "—", unit: indicatorCode, icon: "arrow.left.arrow.right")
             TelemetryTile(title: "Throttle", value: formatted(bike.telemetry.throttlePercent), unit: "%", icon: "bolt.fill")
             TelemetryTile(title: "Average speed", value: formatted(bike.telemetry.averageSpeedKph), unit: "km/h", icon: "chart.line.uptrend.xyaxis")
@@ -188,61 +188,94 @@ struct ContentView: View {
 
     private var additionalTelemetry: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Additional bike data")
-                .font(.title3.weight(.semibold))
-
-            detailCard("Ride data · 0x10", items: [
-                ("Mileage (raw)", raw(bike.telemetry.mileageRaw)),
-                ("Switch status (raw)", hexByte(bike.telemetry.switchStatusRaw)),
-                ("Location-tag field (same byte)", hexByte(bike.telemetry.locationTagRaw)),
-                ("Average mileage (raw)", raw(bike.telemetry.averageMileageRaw)),
-                ("Trip-F meter (raw)", raw(bike.telemetry.tripFMeterRaw))
-            ])
-
-            detailCard("Vehicle status · 0x11", items: [
-                ("Side-stand status bit", bike.telemetry.sideStandStatus.map { $0 ? "Set" : "Clear" }),
-                ("Side-stand sensor bit", bike.telemetry.sideStandSensorStatus.map { $0 ? "Set" : "Clear" }),
-                ("Service reminder (raw)", hexByte(bike.telemetry.serviceReminderRaw)),
-                ("Battery voltage field (raw)", hexByte(bike.telemetry.batteryVoltageRaw)),
-                ("Software version field (raw)", hexByte(bike.telemetry.softwareVersionRaw)),
-                ("MIL blink code (raw)", hexByte(bike.telemetry.milBlinkCodeRaw)),
-                ("Vehicle model (raw)", hexByte(bike.telemetry.vehicleModelRaw)),
-                ("Vehicle diagnostics (raw)", hexByte(bike.telemetry.vehicleDiagnosticsRaw)),
-                ("Engine temperature field (raw)", hexByte(bike.telemetry.engineTemperatureRaw)),
-                ("Tell-tale status (raw)", hexByte(bike.telemetry.tellTaleStatusRaw)),
-                ("Screen matrix (raw)", hexByte(bike.telemetry.screenMatrixRaw)),
-                ("ABS MIL blink code (raw)", hexByte(bike.telemetry.absMilBlinkCodeRaw)),
-                ("Vehicle mode byte (raw)", hexByte(bike.telemetry.vehicleModeRaw)),
-                ("Vehicle direction/state bytes", [bike.telemetry.vehicleDirectionRaw, bike.telemetry.vehicleState1Raw, bike.telemetry.vehicleState2Raw, bike.telemetry.vehicleState3Raw].compactMap { $0 }.map { String(format: "%02X", $0) }.joined(separator: " ").nilIfEmpty),
-                ("Reserved bytes", [bike.telemetry.reserve3Raw, bike.telemetry.reserve14Raw].compactMap { $0 }.map { String(format: "%02X", $0) }.joined(separator: " ").nilIfEmpty)
-            ], footnote: "Raw values are shown where byte format, units, or bit meaning still needs confirmation. Side-stand bit polarity is not verified; switch states are retained in the state bytes.")
-
-            detailCard("Current ride statistics · 0x12", items: [
-                ("Lean angle (raw)", raw(bike.telemetry.leanAngleRaw)),
-                ("Cruising range (raw)", raw(bike.telemetry.cruisingRangeRaw)),
-                ("Wheel-angle offset (raw)", raw(bike.telemetry.wheelAngleOffsetRaw)),
-                ("Acceleration (raw)", raw(bike.telemetry.accelerationRaw)),
-                ("Torque (raw)", raw(bike.telemetry.torqueRaw)),
-                ("Ride distance (raw)", raw(bike.telemetry.tripDistanceRaw)),
-                ("Ride time (raw)", tripTime),
-                ("Ride mileage (raw)", raw(bike.telemetry.tripMileageRaw)),
-                ("Ride fuel (raw)", raw(bike.telemetry.tripFuelRaw)),
-                ("Overspeed threshold (raw)", raw(bike.telemetry.overspeedThresholdRaw)),
-                ("Overspeed setting (raw)", raw(bike.telemetry.overspeedSettingRaw))
-            ], footnote: "This frame provides one current-ride statistics set. It does not identify Trip A, B, C, or Day Trip. Units/scaling are not yet verified.")
-
-            detailCard("Cluster trip meters", items: [
-                ("Trip A", "Not present in the decoded BLE feed"),
-                ("Trip B", "Not present in the decoded BLE feed"),
-                ("Trip C", "Not present in the decoded BLE feed"),
-                ("Day Trip", "Not present in the decoded BLE feed")
-            ], footnote: "The current APK parser exposes one ride-stat set from frame 0x12, not four separate cluster trip-meter values.")
-
-            detailCard("Unmapped frame · 0x5F", items: [
-                ("Decoded payload", bike.telemetry.unknown5FPayloadHex)
-            ], footnote: "The frame is captured for analysis; its fields have not been identified.")
+            Text("CONFIRMED BIKE DATA")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                TelemetryTile(title: "Trip A", value: bike.telemetry.tripDistanceRaw.map { formatted(Double($0) / 10, decimals: 1) } ?? "—", unit: "km", icon: "point.topleft.down.to.point.bottomright.curvepath")
+                TelemetryTile(title: "Trip time", value: tripTime ?? "—", unit: "", icon: "timer")
+                TelemetryTile(title: "Overspeed limit", value: bike.telemetry.overspeedThresholdRaw.map { String($0) } ?? "—", unit: "km/h", icon: "speedometer")
+            }
+            rawDataAccordion
         }
     }
+
+    private var rawDataAccordion: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Raw, provisional, and diagnostic fields. A value shown here may have an unknown unit or interpretation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                detailCard("0x10 · Additional ride fields", items: [
+                    ("Mileage (raw)", raw(bike.telemetry.mileageRaw)),
+                    ("Switch status / location tag (same byte)", raw(bike.telemetry.switchStatusRaw, hex: true)),
+                    ("Average mileage (raw)", raw(bike.telemetry.averageMileageRaw)),
+                    ("Trip-F meter (raw)", raw(bike.telemetry.tripFMeterRaw)),
+                    ("Checksum", "Known frame checksum; not exposed as telemetry")
+                ])
+
+                detailCard("0x11 · Vehicle state and diagnostics", items: [
+                    ("Side-stand sensor bit", raw(bike.telemetry.sideStandSensorStatus.map { $0 ? 1 : 0 }, hex: true)),
+                    ("Vehicle direction byte", raw(bike.telemetry.vehicleDirectionRaw, hex: true)),
+                    ("Vehicle state 1", raw(bike.telemetry.vehicleState1Raw, hex: true)),
+                    ("Service reminder", raw(bike.telemetry.serviceReminderRaw, hex: true)),
+                    ("Vehicle state 2 / battery field (same byte)", raw(bike.telemetry.vehicleState2Raw, hex: true)),
+                    ("Software version field", raw(bike.telemetry.softwareVersionRaw, hex: true)),
+                    ("MIL blink code", raw(bike.telemetry.milBlinkCodeRaw, hex: true)),
+                    ("Vehicle model", raw(bike.telemetry.vehicleModelRaw, hex: true)),
+                    ("Vehicle diagnostics", raw(bike.telemetry.vehicleDiagnosticsRaw, hex: true)),
+                    ("Reserved byte", raw(bike.telemetry.reserve3Raw, hex: true)),
+                    ("Engine temperature / tell-tale / reserved (same byte)", raw(bike.telemetry.engineTemperatureRaw, hex: true)),
+                    ("Screen matrix", raw(bike.telemetry.screenMatrixRaw, hex: true)),
+                    ("Vehicle state 3", raw(bike.telemetry.vehicleState3Raw, hex: true)),
+                    ("ABS MIL blink code", raw(bike.telemetry.absMilBlinkCodeRaw, hex: true)),
+                    ("Full ride-mode byte (low nibble is mode)", raw(bike.telemetry.vehicleModeRaw, hex: true)),
+                    ("Checksum", "Known frame checksum; not exposed as telemetry")
+                ])
+
+                detailCard("0x12 · Additional ride statistics", items: [
+                    ("Lean angle (raw)", raw(bike.telemetry.leanAngleRaw)),
+                    ("Cruising range (raw)", raw(bike.telemetry.cruisingRangeRaw)),
+                    ("Wheel-angle offset (raw)", raw(bike.telemetry.wheelAngleOffsetRaw)),
+                    ("Acceleration (raw)", raw(bike.telemetry.accelerationRaw)),
+                    ("Torque (raw)", raw(bike.telemetry.torqueRaw)),
+                    ("Ride mileage (raw)", raw(bike.telemetry.tripMileageRaw)),
+                    ("Ride fuel (raw)", raw(bike.telemetry.tripFuelRaw)),
+                    ("Overspeed setting (raw)", raw(bike.telemetry.overspeedSettingRaw)),
+                    ("Reserved byte", "00 observed; meaning unassigned"),
+                    ("Checksum", "Known frame checksum; not exposed as telemetry")
+                ])
+
+                detailCard("0x5F · Unmapped payload", items: [
+                    ("Payload hex", bike.telemetry.unknown5FPayloadHex),
+                    ("Meaning", "Unknown; retained for comparison in the BLE log"),
+                    ("0x6B · D-pad events", "Commands 2/3/4 map to Down/Enter/Back; event values are in the BLE log"),
+                    ("0x7D / 0x42 identity frames", "Contents are redacted in logs; not decoded here")
+                ])
+
+                actionMarkerCard
+            }
+            .padding(.top, 10)
+        } label: {
+            Label("Other bike data & log notes", systemImage: "chevron.down.circle")
+                .font(.headline)
+                .foregroundStyle(.primary)
+        }
+        .tint(RTRTheme.accent)
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 16))
+        .overlay { RoundedRectangle(cornerRadius: 16).stroke(RTRTheme.border, lineWidth: 1) }
+    }
+
+    private func raw(_ value: Int?, hex: Bool = false) -> String? {
+        guard let value else { return nil }
+        return hex ? String(format: "0x%02X", value) : String(value)
+    }
+
+    private func raw(_ value: String?) -> String? { value }
 
     private var tripTime: String? {
         guard let hours = bike.telemetry.tripTimeHoursRaw,
@@ -278,9 +311,6 @@ struct ContentView: View {
         }
     }
 
-    private func raw(_ value: Int?) -> String? { value.map(String.init) }
-    private func hexByte(_ value: Int?) -> String? { value.map { String(format: "0x%02X", $0) } }
-
     private var indicatorCode: String {
         bike.telemetry.turnSignalCode.map { "code \($0)" } ?? ""
     }
@@ -310,10 +340,13 @@ private struct BikeSettingsView: View {
     @EnvironmentObject private var bike: BikeBLEManager
     @Environment(\.dismiss) private var dismiss
     @State private var riderNameDraft = ""
+    @State private var musicEnterDraft: BikeMusicAction = .nextTrack
+    @State private var musicBackDraft: BikeMusicAction = .previousTrack
+    @State private var musicDownDraft: BikeMusicAction = .pause
 
     var body: some View {
         Form {
-            Section("Bike") {
+            Section("BIKE") {
                 if let preferredBikeName = bike.preferredBikeName {
                     LabeledContent("Configured bike", value: preferredBikeName)
                 } else {
@@ -363,7 +396,7 @@ private struct BikeSettingsView: View {
                 }
             }
 
-            Section("Rider") {
+            Section("RIDER") {
                 TextField("Rider name", text: $riderNameDraft)
                     .accessibilityIdentifier("riderNameField")
                     .submitLabel(.done)
@@ -374,21 +407,118 @@ private struct BikeSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            Section("D-PAD MUSIC MAPPING") {
+                Text("Tap a detected switch to choose its double-press phone action.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                DPadMusicConfigurator(
+                    enter: $musicEnterDraft,
+                    back: $musicBackDraft,
+                    down: $musicDownDraft
+                )
+                Text("Only Enter, Back, and Down events are mapped from current captures. Choose a playback action for each detected double-press.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(RTRTheme.background)
         .listRowBackground(RTRTheme.panel)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { riderNameDraft = bike.riderName }
+        .onAppear {
+            riderNameDraft = bike.riderName
+            musicEnterDraft = bike.enterDoublePressAction
+            musicBackDraft = bike.backDoublePressAction
+            musicDownDraft = bike.downDoublePressAction
+        }
+        .onChange(of: musicEnterDraft) { _ in
+            bike.setMusicControlActions(enter: musicEnterDraft, back: musicBackDraft, down: musicDownDraft)
+        }
+        .onChange(of: musicBackDraft) { _ in
+            bike.setMusicControlActions(enter: musicEnterDraft, back: musicBackDraft, down: musicDownDraft)
+        }
+        .onChange(of: musicDownDraft) { _ in
+            bike.setMusicControlActions(enter: musicEnterDraft, back: musicBackDraft, down: musicDownDraft)
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     bike.setRiderName(riderNameDraft)
+                    bike.setMusicControlActions(enter: musicEnterDraft, back: musicBackDraft, down: musicDownDraft)
                     dismiss()
                 }
             }
         }
+    }
+
+}
+
+private struct DPadMusicConfigurator: View {
+    @Binding var enter: BikeMusicAction
+    @Binding var back: BikeMusicAction
+    @Binding var down: BikeMusicAction
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            emptyCell
+            unavailableTile("UP", icon: "chevron.up")
+            emptyCell
+
+            actionTile("BACK", icon: "arrow.uturn.backward", action: $back)
+            emptyCell
+            actionTile("ENT", icon: "", action: $enter)
+
+            emptyCell
+            actionTile("DOWN", icon: "chevron.down", action: $down)
+            emptyCell
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var emptyCell: some View {
+        Color.clear.frame(height: 78)
+    }
+
+    private func actionTile(_ title: String, icon: String, action: Binding<BikeMusicAction>) -> some View {
+        Menu {
+            ForEach(BikeMusicAction.allCases) { choice in
+                Button(choice.title) { action.wrappedValue = choice }
+            }
+        } label: {
+            VStack(spacing: 4) {
+                if icon.isEmpty {
+                    Text(title).font(.system(size: 18, weight: .heavy))
+                } else {
+                    Image(systemName: icon).font(.system(size: 19, weight: .bold))
+                }
+                Text(action.wrappedValue.title).font(.system(size: 9)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 78)
+            .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 20))
+            .overlay { RoundedRectangle(cornerRadius: 20).stroke(RTRTheme.accent, lineWidth: 1.5) }
+            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .accessibilityLabel("\(title), \(action.wrappedValue.title)")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func unavailableTile(_ title: String, icon: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 15, weight: .bold))
+            Text("Not mapped").font(.system(size: 9)).lineLimit(1)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity)
+        .frame(height: 78)
+        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 20))
+        .overlay { RoundedRectangle(cornerRadius: 20).stroke(RTRTheme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])) }
+        .accessibilityLabel("\(title), not mapped")
     }
 }
 
@@ -412,8 +542,8 @@ private struct TelemetryTile: View {
                 if !unit.isEmpty { Text(unit).font(.caption).foregroundStyle(.secondary) }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
-        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .padding(14)
         .background(RTRTheme.panel, in: RoundedRectangle(cornerRadius: 14))
         .overlay { RoundedRectangle(cornerRadius: 14).stroke(RTRTheme.border, lineWidth: 1) }
         .monospacedDigit()

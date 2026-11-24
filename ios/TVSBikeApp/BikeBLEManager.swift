@@ -1,7 +1,30 @@
 import CoreBluetooth
 import Combine
 import Foundation
+import MediaPlayer
 import UIKit
+
+enum BikeMusicAction: String, CaseIterable, Identifiable {
+    case none
+    case nextTrack
+    case previousTrack
+    case play
+    case pause
+    case toggle
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none: return "No action"
+        case .nextTrack: return "Next track"
+        case .previousTrack: return "Previous track"
+        case .play: return "Play"
+        case .pause: return "Pause"
+        case .toggle: return "Play / pause"
+        }
+    }
+}
 
 struct BikeDevice: Identifiable {
     let id: UUID
@@ -115,6 +138,9 @@ final class BikeBLEManager: NSObject, ObservableObject {
     @Published var riderName: String {
         didSet { UserDefaults.standard.set(riderName, forKey: Self.riderNameDefaultsKey) }
     }
+    @Published private(set) var enterDoublePressAction: BikeMusicAction
+    @Published private(set) var backDoublePressAction: BikeMusicAction
+    @Published private(set) var downDoublePressAction: BikeMusicAction
     @Published private(set) var preferredBikeID: UUID?
     @Published private(set) var preferredBikeName: String?
     @Published private(set) var documentTransferMessage = ""
@@ -122,6 +148,9 @@ final class BikeBLEManager: NSObject, ObservableObject {
     @Published private(set) var documentTransferActive = false
 
     private static let riderNameDefaultsKey = "tvsBike.riderName"
+    private static let musicEnterActionDefaultsKey = "tvsBike.music.enterDoubleAction"
+    private static let musicBackActionDefaultsKey = "tvsBike.music.backDoubleAction"
+    private static let musicDownActionDefaultsKey = "tvsBike.music.downDoubleAction"
     private static let bikeIDDefaultsKey = "tvsBike.preferredBikeID"
     private static let bikeNameDefaultsKey = "tvsBike.preferredBikeName"
 
@@ -144,11 +173,18 @@ final class BikeBLEManager: NSObject, ObservableObject {
     private var lastMobileStatusQueuedAt: Date?
     private var latestDocumentAck = 0
     private var latestDocumentAckStatus: UInt8?
+    private var lastMusicCommand: UInt8?
+    private var lastMusicCommandAt: TimeInterval = 0
+    private var documentBackgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var welcomeClearTask: Task<Void, Never>?
     private enum ScanPurpose: Equatable { case automatic, deviceSelection }
     private var scanPurpose: ScanPurpose = .automatic
 
     override init() {
         riderName = UserDefaults.standard.string(forKey: Self.riderNameDefaultsKey) ?? "Rider"
+        enterDoublePressAction = BikeMusicAction(rawValue: UserDefaults.standard.string(forKey: Self.musicEnterActionDefaultsKey) ?? "nextTrack") ?? .nextTrack
+        backDoublePressAction = BikeMusicAction(rawValue: UserDefaults.standard.string(forKey: Self.musicBackActionDefaultsKey) ?? "previousTrack") ?? .previousTrack
+        downDoublePressAction = BikeMusicAction(rawValue: UserDefaults.standard.string(forKey: Self.musicDownActionDefaultsKey) ?? "pause") ?? .pause
         if let storedID = UserDefaults.standard.string(forKey: Self.bikeIDDefaultsKey) {
             preferredBikeID = UUID(uuidString: storedID)
         } else {
@@ -252,6 +288,20 @@ final class BikeBLEManager: NSObject, ObservableObject {
         riderName = String(value.prefix(17))
     }
 
+    func setMusicControlActions(enter: BikeMusicAction, back: BikeMusicAction, down: BikeMusicAction) {
+        enterDoublePressAction = enter
+        backDoublePressAction = back
+        downDoublePressAction = down
+        UserDefaults.standard.set(enter.rawValue, forKey: Self.musicEnterActionDefaultsKey)
+        UserDefaults.standard.set(back.rawValue, forKey: Self.musicBackActionDefaultsKey)
+        UserDefaults.standard.set(down.rawValue, forKey: Self.musicDownActionDefaultsKey)
+        logEvent("dpad_mappings_saved", details: [
+            "enter_command_3": enter.rawValue,
+            "back_command_4": back.rawValue,
+            "down_command_2": down.rawValue
+        ])
+    }
+
     func connect(to device: BikeDevice) {
         central.stopScan()
         scanPurpose = .automatic
@@ -304,6 +354,13 @@ final class BikeBLEManager: NSObject, ObservableObject {
         if !welcomeName.isEmpty {
             enqueueWrite(label: "personalized_welcome_0x4C", data: makeCustomTextFrame(text: welcomeName, marker: 0x01))
             logEvent("welcome_message_queued", details: ["frame_id": "4C", "trigger": "bike_connected", "rider_name_length": welcomeName.count])
+            welcomeClearTask?.cancel()
+            welcomeClearTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, let self, self.isConnected else { return }
+                self.enqueueWrite(label: "welcome_display_clear_0x4C", data: self.makeCustomTextFrame(text: "", marker: 0x00))
+                self.logEvent("welcome_message_cleared", details: ["frame_id": "4C", "after_seconds": 5])
+            }
         } else {
             logEvent("welcome_message_skipped", details: ["reason": "rider name is empty"])
         }
@@ -394,7 +451,15 @@ final class BikeBLEManager: NSObject, ObservableObject {
         }
         writeQueue.removeFirst()
         writeInFlight = pending
-        logEvent("write_tx", details: ["label": pending.label, "characteristic": writeCharacteristic.uuid.uuidString])
+        let wireBytes = [UInt8](pending.data)
+        logEvent("write_tx", details: [
+            "label": pending.label,
+            "characteristic": writeCharacteristic.uuid.uuidString,
+            "length": wireBytes.count,
+            "wire_hex": wireBytes.map { String(format: "%02X", $0) }.joined(separator: " "),
+            "decoded_hex": decodedWriteBytes(pending.data).map { String(format: "%02X", $0) }.joined(separator: " "),
+            "mapping_note": writeMappingNote(pending.data)
+        ])
         connectedPeripheral.writeValue(pending.data, for: writeCharacteristic, type: .withResponse)
     }
 
@@ -433,25 +498,118 @@ final class BikeBLEManager: NSObject, ObservableObject {
     }
 
     private func logNotification(_ raw: [UInt8]) {
-        let sensitiveIdentifierFrame = (raw.count >= 2 && raw[0] == 0x5A && raw[1] == 0x7D)
-            || (raw.count >= 2 && raw[0] == 0x5B && raw[1] == 0x42)
-        var fields: [String: Any] = ["length": raw.count]
-        if raw.count >= 2 {
-            fields["header"] = String(format: "%02X", raw[0])
-            fields["frame_id"] = String(format: "%02X", raw[1])
+        guard raw.count >= 2 else {
+            logEvent("bike_notification_rx", details: [
+                "length": raw.count,
+                "wire_hex": raw.map { String(format: "%02X", $0) }.joined(separator: " "),
+                "decoded_hex": raw.map { String(format: "%02X", $0) }.joined(separator: " "),
+                "mapping_note": "Short malformed notification; no frame ID available."
+            ])
+            return
         }
-        if sensitiveIdentifierFrame {
-            fields["wire_hex"] = "REDACTED_IDENTIFIER_FRAME"
-        } else {
-            fields["wire_hex"] = raw.map { String(format: "%02X", $0) }.joined(separator: " ")
-            let isDocumentAck = raw.count >= 9 && raw[0] == 0x5A && raw[1] == 0x54
-            if (raw.count == 20 || isDocumentAck), !(raw[0] == 0x5A && raw[1] == 0x6B) {
-                var decoded = raw
-                for index in 2..<(raw.count - 1) { decoded[index] ^= 0xEA }
-                fields["decoded_hex"] = decoded.map { String(format: "%02X", $0) }.joined(separator: " ")
-            }
+        let frameID = raw[1]
+        let isMusicCommand = raw[0] == 0x5A && frameID == 0x6B
+        var decoded = raw
+        if !isMusicCommand, raw.count > 3 {
+            for index in 2..<(raw.count - 1) { decoded[index] ^= 0xEA }
         }
-        logEvent("notification_rx", details: fields)
+        let sensitive = (raw[0] == 0x5A && frameID == 0x7D) || (raw[0] == 0x5B && frameID == 0x42)
+        let payloadBytes = Array(decoded.dropFirst(2).dropLast())
+        let byteMap: [[String: Any]] = payloadBytes.enumerated().map { offset, value in
+            let byteIndex = offset + 2
+            return [
+                "byte_index": byteIndex,
+                "value": String(format: "%02X", value),
+                "mapping": bikeByteMapping(frameID: frameID, byteIndex: byteIndex)
+            ]
+        }
+        logEvent("bike_notification_rx", details: [
+            "frame_id": String(format: "0x%02X", frameID),
+            "length": raw.count,
+            "wire_hex": sensitive ? "REDACTED_IDENTIFIER_FRAME" : raw.map { String(format: "%02X", $0) }.joined(separator: " "),
+            "decoded_hex": sensitive ? "REDACTED_IDENTIFIER_FRAME" : decoded.map { String(format: "%02X", $0) }.joined(separator: " "),
+            "payload_bytes_with_mappings": sensitive ? [] : byteMap,
+            "mapping_note": "Every received notification is logged. Byte indexes are zero-based offsets in the decoded frame; unknown bytes are marked as unmapped."
+        ])
+    }
+
+    private func decodedWriteBytes(_ data: Data) -> [UInt8] {
+        var bytes = [UInt8](data)
+        guard bytes.count > 3 else { return bytes }
+        let isAppFrame = bytes[0] == 0x5B && [0x4A, 0x4C, 0x52].contains(bytes[1])
+        let isDocumentFrame = bytes[0] == 0x5A && (bytes[1] == 0x53 || bytes[1] == 0x55)
+        if isAppFrame || isDocumentFrame {
+            for index in 2..<(bytes.count - 1) { bytes[index] ^= 0xEA }
+        }
+        return bytes
+    }
+
+    private func writeMappingNote(_ data: Data) -> String {
+        let bytes = [UInt8](data)
+        guard bytes.count >= 2 else { return "unframed data" }
+        switch (bytes[0], bytes[1]) {
+        case (0x5B, 0x4A): return "Phone status: signal/battery, overspeed, time/date, call and network fields; see protocol docs section 2.1."
+        case (0x5B, 0x4C): return "Custom display line 1: decoded payload starts 00 01, then up to 15 ASCII characters; empty marked text clears the line."
+        case (0x5B, 0x52): return "Rider name text frame; ASCII name in decoded payload."
+        case (0x5A, 0x53): return "Digi Docs transfer initialization/completion metadata."
+        case (0x5A, 0x55): return "Digi Docs chunk: sequence number, image bytes, checksum."
+        default: return "Frame layout not mapped in the iOS write logger."
+        }
+    }
+
+    private func bikeByteMapping(frameID: UInt8, byteIndex: Int) -> String {
+        switch (frameID, byteIndex) {
+        case (0x10, 2): return "speedKph"
+        case (0x10, 3...5): return "odometerKm, tenths of km"
+        case (0x10, 6): return "fuelPercent"
+        case (0x10, 7): return "averageSpeedKph"
+        case (0x10, 8): return "mileageRaw, scale unconfirmed"
+        case (0x10, 9): return "topSpeedKph"
+        case (0x10, 10): return "throttlePercent"
+        case (0x10, 11): return "switchStatusRaw and locationTagRaw alias"
+        case (0x10, 12): return "zeroTo60Seconds, tenths"
+        case (0x10, 13): return "averageMileageRaw, scale unconfirmed"
+        case (0x10, 14...15): return "tripFMeterRaw"
+        case (0x10, 16...17): return "engineRPM"
+        case (0x10, 18): return "frame checksum"
+        case (0x11, 2): return "vehicleDirectionRaw; bit 0x10 is sideStandSensorStatus"
+        case (0x11, 3): return "vehicleState1Raw; bit 0x40 sideStandStatus, set=Down, clear=Up"
+        case (0x11, 4): return "serviceReminderRaw"
+        case (0x11, 5): return "gear"
+        case (0x11, 6): return "vehicleState2Raw and batteryVoltageRaw alias"
+        case (0x11, 7): return "softwareVersionRaw"
+        case (0x11, 8): return "milBlinkCodeRaw"
+        case (0x11, 9): return "vehicleModelRaw"
+        case (0x11, 10): return "vehicleDiagnosticsRaw"
+        case (0x11, 11): return "reserved"
+        case (0x11, 12): return "turnSignalCode: 0 off, 1 right, 2 left, 3 hazard"
+        case (0x11, 13): return "engineTemperatureRaw, tellTaleStatusRaw and reserve alias"
+        case (0x11, 14): return "screenMatrixRaw"
+        case (0x11, 15): return "vehicleState3Raw"
+        case (0x11, 16): return "absMilBlinkCodeRaw"
+        case (0x11, 17): return "rideModeCode is low nibble; full byte retained as vehicleModeRaw"
+        case (0x11, 18): return "frame checksum"
+        case (0x12, 2): return "leanAngleRaw"
+        case (0x12, 3...4): return "cruisingRangeRaw, scale unconfirmed"
+        case (0x12, 5): return "wheelAngleOffsetRaw"
+        case (0x12, 6): return "accelerationRaw"
+        case (0x12, 7): return "torqueRaw"
+        case (0x12, 8...9): return "Trip A distance, tenths of km"
+        case (0x12, 10): return "Trip A time hours"
+        case (0x12, 11): return "Trip A time minutes"
+        case (0x12, 12): return "tripMileageRaw, scale unconfirmed"
+        case (0x12, 13...14): return "tripFuelRaw, scale unconfirmed"
+        case (0x12, 15): return "overspeedThreshold, km/h"
+        case (0x12, 16): return "overspeedSettingRaw"
+        case (0x12, 17): return "reserved/unmapped; observed as 00"
+        case (0x12, 18): return "frame checksum"
+        case (0x5F, 18): return "frame checksum; payload layout remains unmapped"
+        case (0x5F, _): return "unmapped payload; retained as raw hex"
+        case (0x6B, 2): return "music command: 2 Down, 3 Enter, 4 Back"
+        case (0x6B, 3...18): return "padding/reserved; zero-filled in observed commands"
+        case (0x6B, _): return "unmapped music-command byte"
+        default: return "not currently mapped by the app"
+        }
     }
 
     private func handleNotification(_ data: Data) {
@@ -498,6 +656,7 @@ final class BikeBLEManager: NSObject, ObservableObject {
         if raw[0] == 0x5A, raw[1] == 0x6B {
             frameCounts[0x6B, default: 0] += 1
             lastFrameSummary = "Bike music command: \(raw[2])"
+            handleBikeMusicCommand(raw[2])
             return
         }
 
@@ -578,16 +737,54 @@ final class BikeBLEManager: NSObject, ObservableObject {
         }
     }
 
+    private func handleBikeMusicCommand(_ command: UInt8) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if lastMusicCommand == command, now - lastMusicCommandAt <= 0.1 {
+            logEvent("music_command_duplicate_ignored", details: ["bike_command": Int(command)])
+            return
+        }
+        lastMusicCommand = command
+        lastMusicCommandAt = now
+
+        let action: BikeMusicAction
+        switch command {
+        case 2: action = downDoublePressAction
+        case 3: action = enterDoublePressAction
+        case 4: action = backDoublePressAction
+        default:
+            logEvent("music_command_unmapped", details: ["bike_command": Int(command)])
+            return
+        }
+        logEvent("music_command_action", details: ["bike_command": Int(command), "action": action.rawValue])
+        let player = MPMusicPlayerController.systemMusicPlayer
+        switch action {
+        case .none: break
+        case .nextTrack: player.skipToNextItem()
+        case .previousTrack: player.skipToPreviousItem()
+        case .play: player.play()
+        case .pause: player.pause()
+        case .toggle:
+            if player.playbackState == .playing { player.pause() } else { player.play() }
+        }
+    }
+
     func sendDocument(image: UIImage, name: String, pictureNumber: Int) async throws {
         guard isConnected, let peripheral = connectedPeripheral, let characteristic = writeCharacteristic else {
             throw DocumentTransferError.notConnected
         }
-        guard (1...5).contains(pictureNumber) else { throw DocumentTransferError.invalidPictureNumber }
+        guard (1...3).contains(pictureNumber) else { throw DocumentTransferError.invalidPictureNumber }
         guard !documentTransferActive else { throw DocumentTransferError.alreadySending }
         let payload = try Self.makeDocumentPayload(from: image)
         let chunkSize = 128
         let totalFrames = (payload.count + chunkSize - 1) / chunkSize
         guard totalFrames > 0, totalFrames <= 6000 else { throw DocumentTransferError.imageTooLarge }
+        documentBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "RTR Link Digi Docs transfer") { [weak self] in
+            guard let self else { return }
+            self.logEvent("document_background_time_expired", details: ["sent_frames": Int(self.documentTransferProgress * Double(totalFrames))])
+            let expiredTask = self.documentBackgroundTask
+            self.documentBackgroundTask = .invalid
+            if expiredTask != .invalid { UIApplication.shared.endBackgroundTask(expiredTask) }
+        }
         let safeName = String(name.unicodeScalars.prefix(10).map { $0.isASCII ? Character($0) : " " })
         documentTransferActive = true
         documentTransferProgress = 0
@@ -595,7 +792,13 @@ final class BikeBLEManager: NSObject, ObservableObject {
         latestDocumentAck = 0
         latestDocumentAckStatus = nil
         logEvent("document_transfer_started", details: ["picture_number": pictureNumber, "frames": totalFrames, "payload_bytes": payload.count])
-        defer { documentTransferActive = false }
+        defer {
+            documentTransferActive = false
+            if documentBackgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(documentBackgroundTask)
+                documentBackgroundTask = .invalid
+            }
+        }
         do {
             try await sendDocumentPacket(Self.documentInit(picture: pictureNumber, total: totalFrames, current: 1, status: 1, name: safeName), label: "document_init", peripheral: peripheral, characteristic: characteristic)
             try await Task.sleep(for: .milliseconds(150))
@@ -615,6 +818,7 @@ final class BikeBLEManager: NSObject, ObservableObject {
             if (try? await waitForDocumentCompletion(atLeast: totalFrames)) != nil {
                 documentTransferMessage = "Bike confirmed the document."
                 logEvent("document_transfer_completed", details: ["acknowledged_frames": latestDocumentAck])
+                await sendDocumentDisplayMessage(name: name, peripheral: peripheral, characteristic: characteristic)
             } else {
                 documentTransferMessage = "Sent all image data; bike confirmation was not received."
                 logEvent("document_transfer_unconfirmed", details: ["sent_frames": totalFrames])
@@ -623,6 +827,39 @@ final class BikeBLEManager: NSObject, ObservableObject {
             documentTransferMessage = "Transfer failed: \(error.localizedDescription)"
             logEvent("document_transfer_failed", details: ["sent_frames": Int(documentTransferProgress * Double(totalFrames)), "error": error.localizedDescription])
             throw error
+        }
+    }
+
+    private func sendDocumentDisplayMessage(name: String, peripheral: CBPeripheral, characteristic: CBCharacteristic) async {
+        // Do not let a pending welcome clear erase a newer document message.
+        welcomeClearTask?.cancel()
+        let shortName = String(name.unicodeScalars.prefix(10).map { $0.isASCII ? String($0) : "X" }.joined())
+        let displayText = "\(shortName) Done"
+        do {
+            try await sendDocumentPacket(
+                // Marker 0x01 invokes the bike's personalized welcome line
+                // ("Hi … have a nice ride"). Captured free-form text uses 0x41.
+                makeCustomTextFrame(text: displayText, marker: 0x41),
+                label: "document_uploaded_display_0x4C",
+                peripheral: peripheral,
+                characteristic: characteristic
+            )
+            logEvent("document_upload_displayed", details: ["text": String(displayText.unicodeScalars.prefix(15).map { $0.isASCII ? String($0) : "X" }.joined()), "frame_id": "4C"])
+            try await Task.sleep(for: .seconds(2))
+            guard isConnected else {
+                logEvent("document_upload_display_clear_skipped", details: ["reason": "bike disconnected"])
+                return
+            }
+            try await sendDocumentPacket(
+                // The captured clear frame has an all-zero text body.
+                makeCustomTextFrame(text: "", marker: 0x00),
+                label: "document_uploaded_display_clear_0x4C",
+                peripheral: peripheral,
+                characteristic: characteristic
+            )
+            logEvent("document_upload_display_cleared", details: ["frame_id": "4C"])
+        } catch {
+            logEvent("document_upload_display_failed", details: ["error": error.localizedDescription])
         }
     }
 
@@ -721,7 +958,7 @@ final class BikeBLEManager: NSObject, ObservableObject {
             case .notConnected: return "Connect to the bike before sending a document."
             case .disconnected: return "The bike disconnected during the transfer."
             case .invalidImage: return "This image could not be prepared for the bike."
-            case .invalidPictureNumber: return "Choose a valid document slot."
+            case .invalidPictureNumber: return "Choose one of the three bike document slots."
             case .alreadySending: return "A document is already being sent."
             case .imageTooLarge: return "This image is larger than the bike transfer limit. Crop it more tightly and try again."
             case .acknowledgementTimeout(let frame): return "The bike did not acknowledge frame \(frame)."
