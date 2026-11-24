@@ -11,6 +11,13 @@ __pycache__/
 *.xcuserstate
 /DerivedData/
 
+# Android Studio and Gradle machine-local/generated files
+**/.gradle/
+**/.idea/
+**/build/
+android/local.properties
+android/app/release/
+
 # Independently versioned GitHub Pages site
 /website/
 
@@ -23,6 +30,8 @@ __pycache__/
 *.p12
 *.mobileprovision
 *.provisionprofile
+*.jks
+*.keystore
 
 # Local captures, app packages, and exports
 *.apk

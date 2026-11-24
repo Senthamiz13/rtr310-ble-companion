@@ -11,13 +11,13 @@ An independent project exploring Bluetooth Low Energy communication with a TVS A
 - **iOS app** — SwiftUI and Core Bluetooth client for connection, telemetry, phone-status frames, rider display text, and Digi Docs transfer.
 - **Python tools** — read-only BLE probe, protocol packet helpers, and a local telemetry dashboard for macOS.
 - **Protocol notes** — frame formats and reverse-engineering findings, with confidence and unknowns called out.
-- **Android app** — planned. The original TVS Connect APK is not part of this repository; no independent Android client source is included yet.
+- **Android app** — native Java client in `android/`, with BLE scanning, telemetry, rider settings, session markers, and Digi Docs transfer. The original TVS Connect APK is not part of this repository.
 
 ## Repository layout
 
 ```text
 ios/        Native iOS app and Xcode project
-android/    Android client landing page; source project not added yet
+android/    Native Android Studio app
 scripts/    Python BLE probe, protocol helpers, and local web dashboard
 tests/      Offline checks for Python packet and dashboard behavior
 docs/       Protocol notes and app-feature analysis
@@ -50,11 +50,13 @@ Open `ios/TVSBike.xcodeproj` in Xcode, select the `TVSBike` scheme, set your own
 
 ## Android app
 
-The `android/` directory currently contains setup notes only. Add an independently developed Android Studio project there when it is ready. Do not add the proprietary TVS Connect APK or extracted APK assets.
+Open `android/` in Android Studio or build the native Java app with `cd android && ./gradlew assembleDebug`. Install on a physical Android phone; BLE connections and document transfer cannot be tested in the emulator. The app uses the same observed BLE service and frame layouts as the iOS client. See [`android/README.md`](android/README.md) for permissions, setup, and protocol limitations. Do not add the proprietary TVS Connect APK or extracted APK assets.
 
 ## Protocol documentation
 
 Start with [`docs/bike_ble_protocol.md`](docs/bike_ble_protocol.md). The notes distinguish observed packet fields from inferred meanings; some field units and state-bit polarities remain unverified. [`docs/btsnoop_analysis.md`](docs/btsnoop_analysis.md) summarizes sanitized capture findings. Raw captures stay local under `local_data/` and are not needed to build the clients.
+
+Planned features and research areas are listed in the [RTR Link roadmap](docs/roadmap.md). These are plans, not currently released capabilities.
 
 ## Data and privacy
 
