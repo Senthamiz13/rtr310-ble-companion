@@ -1,0 +1,67 @@
+name: Request support for another bike
+description: Request research or compatibility work for another TVS or motorcycle brand.
+title: "[Bike support]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        RTR Link currently focuses on the Apache RTR 310. Other bikes are not confirmed as compatible. A request helps us understand interest; it does not guarantee support. Please do not include a VIN, registration number, frame/engine number, pairing key, personal location, or unredacted Bluetooth logs.
+  - type: input
+    id: brand
+    attributes:
+      label: Motorcycle brand
+      description: For example, TVS, Yamaha, Honda, or another manufacturer.
+      placeholder: Brand
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: Model name
+    validations:
+      required: true
+  - type: input
+    id: year
+    attributes:
+      label: Model year or generation
+      placeholder: Year, generation, or "not sure"
+    validations:
+      required: true
+  - type: input
+    id: market
+    attributes:
+      label: Country or market
+      description: Optional; variants can differ by market.
+      placeholder: Country or region
+  - type: dropdown
+    id: interest
+    attributes:
+      label: What would you like RTR Link to support?
+      multiple: true
+      options:
+        - Bluetooth connection
+        - Live dashboard / telemetry
+        - Riding mode and vehicle status
+        - Digital document upload
+        - D-pad / media controls
+        - Navigation or bike alerts
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: bike_access
+    attributes:
+      label: Could you help test on this model?
+      options:
+        - I own or can access this bike
+        - I may be able to help arrange access
+        - No, I am requesting future support
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Anything else that would help us assess it?
+      description: Share the feature need, model variant, or safe testing context. Do not upload private documents or raw captures.
+      placeholder: What would you most like to do with the app on this bike?

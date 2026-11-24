@@ -2,6 +2,8 @@
 
 Native Android companion app for Apache RTR riders. This is an independent fan project and is not affiliated with or supported by TVS Motor Company.
 
+The current BLE implementation is based on the Apache RTR 310. We welcome requests for other TVS models and other motorcycle brands through the [bike support request form](https://github.com/Senthamiz13/rtr310-ble-companion/issues/new?template=bike_support_request.yml). Requests help us prioritize research but do not imply compatibility or a delivery date.
+
 ## Current implementation
 
 - BLE scan for the TVS custom service, connect, discover GATT characteristics, and subscribe to notifications.
